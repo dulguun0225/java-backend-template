@@ -1,0 +1,9 @@
+target/
+.settings
+.project
+.classpath
+.idea/
+*.iml
+.vscode/
+.DS_Store
+.jqwik-database

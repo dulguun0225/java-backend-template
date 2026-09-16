@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices", ":semanticCommitsDisabled"],
+  "description": "Every version here is an exact pin (Enforcer banDynamicVersions). This is the named path for moving a pin: a PR per update, digest-pinned actions and images, no automerge. Renovate itself is AGPL-3.0; as a hosted app it never enters the dependency graph the licence gate reads.",
+  "pinDigests": true,
+  "rangeStrategy": "pin",
+  "minimumReleaseAge": "14 days",
+  "packageRules": [
+    {
+      "description": "jqwik ceiling: 1.9.3 or lower is a safety control (llm-default-traps). Never propose a bump.",
+      "matchPackageNames": ["net.jqwik:jqwik", "net.jqwik:jqwik-api", "net.jqwik:jqwik-engine"],
+      "enabled": false
+    },
+    {
+      "description": "Major moves of the pinned platforms are a deliberate commit with a recorded source and date, not a bot PR.",
+      "matchPackageNames": ["org.springframework.boot:spring-boot-starter-parent"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
+  ]
+}
