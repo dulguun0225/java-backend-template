@@ -1,6 +1,6 @@
 # Gates
 
-Every check `mvn verify` (in `backend/`) and `.github/workflows/ci.yml` run, the skill directive it implements, and where it
+Every check `scripts/wall.sh` runs (and the project-root CI around it), the skill directive it implements, and where it
 lives. Then the directives the skills name that nothing here reaches, so a reader does not mistake a green
 build for coverage of them. Skill names are the directories under `skills/` in `dulguun0225/skills`.
 
@@ -36,10 +36,10 @@ in the workflow that fails on exit code. Nothing is advisory.
 | Coverage floor, merged unit and integration, per module | test (JaCoCo) | `pom.xml` jacoco, `jacoco.line.minimum` | java-backend-rules *Coverage is gated by JaCoCo* (the ratio is this repo's call) |
 | Licence allowlist, deny by default, unknown fails | test | `pom.xml` license plugin, `licenses/` | guardrails-toolchain *Licences gate deny-by-default over a committed dependency inventory* |
 | SBOM (CycloneDX) and osv-scanner over it, pinned by checksum, exit code; suppression inventory committed | ci | `scripts/osv-scan.sh`, `osv-scanner.toml` | guardrails-toolchain *Gate on exit codes and committed artifacts*, *Record the caveat that bites* (suppression inventory) |
-| Every action SHA-pinned | ci | `scripts/check-action-pins.sh` | llm-default-traps *CI actions and scanners are SHA-pinned* |
-| Required status checks on the default branch equal the committed job names | ci | `scripts/check-required-checks.sh`, `.github/rulesets/main.json` | guardrails-toolchain layer clause on *fails the build* (the forge's settings are not a committed file) |
-| Named path for moving a pin | process | `renovate.json` | llm-default-traps composite condition on SHA pins |
-| Frontend: a required `frontend` job that states nothing gates the frontend while it is empty, and demands a lockfile-exact install plus a `check` script the moment `frontend/package.json` exists | ci | `scripts/frontend-gate.sh`, `frontend/README.md` | guardrails-toolchain *Record what stayed advisory*; no published skill governs a frontend, and the row says so |
+| Every action SHA-pinned | ci | `project-root/scripts/check-action-pins.sh` | llm-default-traps *CI actions and scanners are SHA-pinned* |
+| Required status checks on the default branch equal the committed job names | ci (project root) | `project-root/scripts/check-required-checks.sh`, `project-root/.github/rulesets/main.json` | guardrails-toolchain layer clause on *fails the build* (the forge's settings are not a committed file) |
+| Named path for moving a pin | process | `project-root/renovate.json` (and this repo's own) | llm-default-traps composite condition on SHA pins |
+| Frontend: a required `frontend` job that states nothing gates the frontend while it is empty, and demands a lockfile-exact install plus a `check` script the moment `frontend/package.json` exists | ci (project root) | `project-root/scripts/frontend-gate.sh`, `project-root/frontend/README.md` | guardrails-toolchain *Record what stayed advisory*; no published skill governs a frontend, and the row says so |
 
 ## Named gaps: directives with no gate here
 

@@ -27,12 +27,16 @@ class ForbiddenFlagsTest {
 
     @Test
     void noAgentOrPreviewFlagInBuildOrDeployFiles() throws IOException {
-        Path backend = Path.of("").toAbsolutePath(); // surefire cwd = backend/
-        Path root = backend.resolve("..").normalize();
+        Path backend = Path.of("").toAbsolutePath(); // surefire cwd = the module dir
+        // compose.yaml is one level up in a project (backend/ is vendored) and under project-root/ in the template
+        // itself.
+        Path compose = Files.exists(backend.resolve("project-root/compose.yaml"))
+                ? backend.resolve("project-root/compose.yaml")
+                : backend.resolve("../compose.yaml").normalize();
 
         List<Path> files = new ArrayList<>();
         addIfExists(files, backend.resolve("Dockerfile"));
-        addIfExists(files, root.resolve("compose.yaml"));
+        addIfExists(files, compose);
         addIfExists(files, backend.resolve(".mvn/jvm.config"));
         addIfExists(files, backend.resolve("pom.xml"));
         assertThat(files)
