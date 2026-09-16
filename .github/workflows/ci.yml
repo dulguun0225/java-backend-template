@@ -49,7 +49,7 @@ jobs:
           TZ: Pacific/Kiritimati
           LANG: tr_TR.UTF-8
           LC_ALL: tr_TR.UTF-8
-        run: mvn -B -ntp -pl starter-app -am verify -Dit.test=OpenApiSnapshotIT -Dfailsafe.failIfNoSpecifiedTests=false -Djacoco.skip=true -Dspotless.check.skip=true -Dlicense.skip=true -Dcyclonedx.skip=true -Denforcer.skip=true
+        run: mvn -B -ntp verify -Dit.test=OpenApiSnapshotIT -Dtest=NoSuchTest -Dsurefire.failIfNoSpecifiedTests=false -Djacoco.skip=true -Dspotless.check.skip=true -Dlicense.skip=true -Dcyclonedx.skip=true -Denforcer.skip=true
 
       - name: Dependency vulnerabilities (osv-scanner over the SBOM)
         run: scripts/osv-scan.sh
@@ -67,7 +67,6 @@ jobs:
           path: |
             target/classes/META-INF/sbom/application.cdx.json
             target/osv-results.json
-            starter-app/target/failsafe-reports/*.xml
-            starter-app/target/surefire-reports/*.xml
-            starter-platform/target/surefire-reports/*.xml
+            target/failsafe-reports/*.xml
+            target/surefire-reports/*.xml
           if-no-files-found: ignore

@@ -22,7 +22,7 @@ services:
   api:
     build:
       context: .
-    image: starter-app:dev
+    image: starter:dev
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/starter
       SPRING_DATASOURCE_USERNAME: starter

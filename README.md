@@ -14,8 +14,8 @@ the directive it implements and lists, by name, what no gate here reaches.
 ```bash
 gh repo create my-org/billing --template dulguun0225/java-backend-template --private --clone
 cd billing
-scripts/init.sh --package com.acme.billing --name billing     # renames package, group, modules
-mvn -Pcodegen -pl billing-platform process-test-classes        # regenerate jOOQ under the new package
+scripts/init.sh --package com.acme.billing --name billing     # renames package, group, artifact
+mvn -Pcodegen generate-sources                                 # regenerate jOOQ under the new package
 mvn verify                                                     # the whole wall; Docker required
 git add -A && git commit -m "init: billing from java-backend-template"
 scripts/apply-ruleset.sh                                        # main-branch protection: PR + the `wall` check
@@ -31,8 +31,12 @@ codegen and the drift check.
 
 | Path | What |
 |---|---|
-| `starter-platform/` | The platform tier: `Money`, `RoundingPolicy`, `Ids` (UUIDv7), `Tx` (the one transaction seam), the RFC 9457 error contract, the typed logging facade, `KeysetPager`, the Flyway migrations and the generated jOOQ tree |
-| `starter-app/` | The deployable: `Application`, the correlation filter, the exception handler and its error catalog, the `greeting` worked-example feature, `openapi/v1.json`, and every architecture and contract test |
+| `src/main/java/.../platform/` | The platform tier: `Money`, `RoundingPolicy`, `Ids` (UUIDv7), `Tx` (the one transaction seam), the RFC 9457 error contract, the typed logging facade, `KeysetPager`. Depends on no feature; `LayeringArchTest` pins it |
+| `src/main/java/.../db/` | The generated jOOQ tree, committed, regenerated from `src/main/resources/db/migration/` by `mvn -Pcodegen generate-sources` |
+| `src/main/java/.../` | The deployable: `Application`, the correlation filter, the exception handler and its error catalog, and one package per feature, `greeting` being the worked example |
+| `src/test/java/` | Every architecture, contract, convention and integration test; `...fixtures/` holds one violating fixture per ban rule |
+| `openapi/v1.json` | The committed, normalized contract the build diffs |
+| `codegen/` | The jOOQ codegen runner, launched as a Java source-file program so it needs nothing compiled first |
 | `scripts/` | The CI steps as shell: action pins, forbidden flags, squawk, codegen drift, osv-scanner, required-checks assertion, ruleset apply, `init.sh` |
 | `.github/workflows/ci.yml` | One job, `wall`, everything on exit codes, every action SHA-pinned |
 | `docs/GATES.md` | Gate-to-directive map and the named gaps |
@@ -52,7 +56,7 @@ for moving a pin.
 
 ## Adding a feature
 
-Copy the `greeting` package's shape: a migration under `db/migration`, regenerate jOOQ, a `*ErrorCode`
+Copy the `greeting` package's shape: a migration under `src/main/resources/db/migration`, `mvn -Pcodegen generate-sources`, a `*ErrorCode`
 enum (add it to `ErrorCatalogSnapshotTest`), a service that goes through `Tx`, a controller, an `*IT`
 against Testcontainers. The build tells you when the error-catalog or OpenAPI snapshot needs a deliberate
 update and writes the new copy under `target/`. Then delete `greeting`.

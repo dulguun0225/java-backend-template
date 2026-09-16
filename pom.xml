@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <!-- Reactor parent. Every gate the skills name as build-enforceable is wired here once, for every module.
+  <!-- The one module. Every gate the skills name as build-enforceable is wired here.
        Versions are exact pins (Enforcer banDynamicVersions), re-checked at adoption, moved by Renovate PRs.
        Pin record, 2026-09-16: Java 25 LTS (jdk.java.net/25, GA 2025-09-16), Spring Boot 4.1.1 (github.com/
        spring-projects/spring-boot/releases, newest GA line on that date). -->
@@ -16,10 +16,9 @@
   </parent>
 
   <groupId>com.example</groupId>
-  <artifactId>starter-parent</artifactId>
+  <artifactId>starter</artifactId>
   <version>0.0.1-SNAPSHOT</version>
-  <packaging>pom</packaging>
-  <name>starter-parent</name>
+  <name>starter</name>
   <description>Java backend template: Spring Boot Web MVC, jOOQ, PostgreSQL, with every build gate pre-wired</description>
 
   <properties>
@@ -49,7 +48,7 @@
     <enforcer.version>3.6.3</enforcer.version>
     <jacoco.version>0.8.15</jacoco.version>
     <!-- Coverage floor: this repo's call, not a platform default. The gate is that JaCoCo check fails the
-         build; the number is tuned to the product's risk profile. Per-module override in the module pom. -->
+         build; the number is tuned to the product's risk profile. -->
     <jacoco.line.minimum>0.60</jacoco.line.minimum>
     <cyclonedx.version>2.9.3</cyclonedx.version>
     <license-plugin.version>2.7.1</license-plugin.version>
@@ -82,13 +81,101 @@
     </dependencies>
   </dependencyManagement>
 
-  <modules>
-    <module>starter-platform</module>
-    <module>starter-app</module>
-  </modules>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <!-- Boot 4 modular autoconfiguration: Flyway's integration lives in spring-boot-flyway. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-flyway</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jooq</groupId>
+      <artifactId>jooq</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jspecify</groupId>
+      <artifactId>jspecify</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.uuid</groupId>
+      <artifactId>java-uuid-generator</artifactId>
+    </dependency>
+    <!-- OpenAPI 3.1 generated from the controllers; the committed, normalized copy is openapi/v1.json. springdoc's
+         3.x line targets Boot 4. The -api starter only: no Swagger UI ships in the image. -->
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+      <version>${springdoc.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Real PostgreSQL for integration tests: Testcontainers, never H2 or embedded. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- ArchUnit: the ban list as bytecode-level architecture tests. -->
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>net.jqwik</groupId>
+      <artifactId>jqwik</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- jOOQ code generation, `codegen` profile only: the runner in codegen/ is launched as a Java source-file
+         program on the test classpath, before compile, so a schema change regenerates even while main code
+         still references tables that do not exist yet. Pinned to the Boot-managed jOOQ runtime version. -->
+    <dependency>
+      <groupId>org.jooq</groupId>
+      <artifactId>jooq-codegen</artifactId>
+      <version>${jooq.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
 
   <build>
     <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
       <!-- Enforcer: the pin is the pin. Java version equals the pin, no dynamic versions anywhere, the jqwik
            ceiling, and the banned-dependency list every module inherits. -->
       <plugin>
@@ -219,7 +306,7 @@
       </plugin>
 
       <!-- Coverage gate: JaCoCo check fails the build below the floor. Unit (surefire) and integration (failsafe)
-           runs are recorded separately, merged, and checked once per module at verify. -->
+           runs are recorded separately, merged, and checked once at verify. -->
       <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>
@@ -311,7 +398,7 @@
       </plugin>
 
       <!-- SBOM: the machine-readable dependency inventory the licence gate and the vulnerability scan read.
-           Aggregate over the reactor, written at package to target/classes/META-INF/sbom/application.cdx.json. -->
+           Written at package to target/classes/META-INF/sbom/application.cdx.json. -->
       <plugin>
         <groupId>org.cyclonedx</groupId>
         <artifactId>cyclonedx-maven-plugin</artifactId>
@@ -320,7 +407,7 @@
           <execution>
             <phase>package</phase>
             <goals>
-              <goal>makeAggregateBom</goal>
+              <goal>makeBom</goal>
             </goals>
           </execution>
         </executions>
@@ -343,8 +430,8 @@
               <goal>add-third-party</goal>
             </goals>
             <configuration>
-              <includedLicenses>file:///${maven.multiModuleProjectDirectory}/licenses/allowlist.txt</includedLicenses>
-              <licenseMergesUrl>file:///${maven.multiModuleProjectDirectory}/licenses/merges.txt</licenseMergesUrl>
+              <includedLicenses>file:///${project.basedir}/licenses/allowlist.txt</includedLicenses>
+              <licenseMergesUrl>file:///${project.basedir}/licenses/merges.txt</licenseMergesUrl>
               <failOnMissing>true</failOnMissing>
               <failOnBlacklist>true</failOnBlacklist>
               <excludedScopes>test</excludedScopes>
@@ -355,4 +442,41 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- `mvn -Pcodegen generate-sources` regenerates the committed jOOQ classes from the Flyway schema against a
+         Testcontainers PostgreSQL. Bound to generate-sources and run through the java launcher's source-file mode,
+         so nothing of this project has to compile first. CI runs it twice and diffs (scripts/check-codegen-drift.sh). -->
+    <profile>
+      <id>codegen</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <version>${exec-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>jooq-codegen</id>
+                <phase>generate-sources</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>java</executable>
+                  <workingDirectory>${project.basedir}</workingDirectory>
+                  <classpathScope>test</classpathScope>
+                  <arguments>
+                    <argument>-classpath</argument>
+                    <classpath/>
+                    <argument>codegen/JooqCodegenRunner.java</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

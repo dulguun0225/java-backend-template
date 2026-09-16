@@ -1,5 +1,3 @@
-package com.example.starter.codegen;
-
 import org.flywaydb.core.Flyway;
 import org.jooq.codegen.GenerationTool;
 import org.jooq.meta.jaxb.Configuration;
@@ -12,9 +10,11 @@ import org.testcontainers.containers.PostgreSQLContainer;
 /**
  * jOOQ code generation from the real schema: stand up a PostgreSQL, run the committed Flyway migrations,
  * generate jOOQ classes from the live schema into {@code src/main/java} under {@code com.example.starter.db},
- * committed. Run only via the {@code codegen} Maven profile ({@code mvn -Pcodegen -pl starter-platform
- * process-test-classes}); CI regenerates and diffs against the committed tree, and drift fails the build.
- * Build tooling: excluded from the compile wall and the formatter.
+ * committed. Run only via the {@code codegen} Maven profile ({@code mvn -Pcodegen generate-sources}), which
+ * launches this file in the java launcher's source-file mode on the test classpath before anything compiles, so
+ * a fresh schema regenerates even while main code references tables that do not exist yet. CI regenerates
+ * twice and diffs against the committed tree; drift fails the build. Build tooling, not part of the compiled
+ * project: outside src/, so neither the compile wall nor the formatter reads it.
  */
 public final class JooqCodegenRunner {
 
@@ -26,7 +26,7 @@ public final class JooqCodegenRunner {
 
             Flyway.configure()
                     .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
-                    .locations("classpath:db/migration")
+                    .locations("filesystem:src/main/resources/db/migration")
                     .load()
                     .migrate();
 

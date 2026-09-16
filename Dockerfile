@@ -5,10 +5,10 @@
 FROM maven:3.9-eclipse-temurin-25 AS build
 WORKDIR /build
 COPY . .
-RUN --mount=type=cache,target=/root/.m2 mvn -B -Dmaven.test.skip=true -Dspotless.check.skip=true -Dlicense.skip=true -pl starter-app -am package
+RUN --mount=type=cache,target=/root/.m2 mvn -B -Dmaven.test.skip=true -Dspotless.check.skip=true -Dlicense.skip=true package
 
 FROM eclipse-temurin:25-jre AS runtime
 WORKDIR /app
-COPY --from=build /build/starter-app/target/starter-app-*.jar app.jar
+COPY --from=build /build/target/starter-*.jar app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

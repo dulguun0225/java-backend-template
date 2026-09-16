@@ -16,8 +16,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The schema lint over the committed Flyway migrations: the bans no off-the-shelf migration linter carries
- * because they need to know which column holds money or which column is the key. Runs over every migration in
- * the platform module, and over the committed negative fixtures so each rule is proven to fire.
+ * because they need to know which column holds money or which column is the key. Runs over every
+ * committed migration, and over the committed negative fixtures so each rule is proven to fire.
  *
  * <ul>
  *   <li>Keys: every table's surrogate key is {@code id uuid ... default uuidv7()}; sequences in every spelling
@@ -34,8 +34,7 @@ import org.junit.jupiter.api.Test;
  */
 class MigrationConventionsTest {
 
-    private static final Path MIGRATIONS =
-            Path.of("..", "starter-platform", "src", "main", "resources", "db", "migration");
+    private static final Path MIGRATIONS = Path.of("src", "main", "resources", "db", "migration");
     private static final Path FIXTURES = Path.of("src", "test", "resources", "migration-fixtures");
 
     record Violation(String file, String rule) {}
