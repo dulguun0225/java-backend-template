@@ -2,6 +2,7 @@ package com.example.starter;
 
 import static com.tngtech.archunit.core.domain.JavaCall.Predicates.target;
 import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.name;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
@@ -10,11 +11,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaFieldAccess;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.CompositeArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -97,6 +103,8 @@ class BanListArchTest {
             "newWorkStealingPool",
             "newScheduledThreadPool",
             "newSingleThreadScheduledExecutor");
+
+    private static final Set<String> ORDERING_METHODS = Set.of("orderBy", "sortAsc", "sortDesc");
 
     private static final List<String> RUNTIME_SILENT_ANNOTATIONS = List.of(
             "org.springframework.transaction.annotation.Transactional",
@@ -293,6 +301,74 @@ class BanListArchTest {
             .because(
                     "records and explicit mappers; generated accessors and mappers are behaviour absent from the text");
 
+    /**
+     * A method-scoped bytecode approximation: a method that both calls {@code DSLContext.update} and touches a
+     * generated {@code VERSION} field is rendering a versioned update by hand. Service methods must never call
+     * {@code dsl.update(...)} themselves; {@code VersionedUpdate} is the one writer of a version-columned table.
+     */
+    static final ArchRule VERSIONED_TABLE_UPDATES_GO_THROUGH_HELPER = methods()
+            .that()
+            .areDeclaredInClassesThat()
+            .doNotHaveFullyQualifiedName(BASE + ".platform.VersionedUpdate")
+            .should(notRenderAVersionedUpdate())
+            .because(
+                    "only VersionedUpdate renders UPDATE on a version-columned table; a hand-written update can skip the version guard (R-5)");
+
+    /**
+     * The same method-scoped approximation for the id tiebreak: a method that orders must not touch a generated
+     * {@code .ID} field. Look a row up by id in a separate method from the one that sorts.
+     */
+    static final ArchRule NO_ORDER_BY_ID_OUTSIDE_PAGER = methods()
+            .that()
+            .areDeclaredInClassesThat()
+            .doNotHaveFullyQualifiedName(KEYSET_PAGER)
+            .should(notOrderByAnIdColumn())
+            .because(
+                    "a time-ordered key is monotonic per generator, not across a pool; ORDER BY id is not an ordering (primary-keys); KeysetPager owns the only id tiebreak");
+
+    private static ArchCondition<JavaMethod> notRenderAVersionedUpdate() {
+        return new ArchCondition<>("not render an UPDATE on a version-columned table") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                boolean updates = method.getMethodCallsFromSelf().stream()
+                        .anyMatch(call -> call.getName().equals("update")
+                                && call.getTarget().getOwner().isAssignableTo(DSLContext.class));
+                if (updates && touchesGeneratedField(method, "VERSION")) {
+                    events.add(SimpleConditionEvent.violated(
+                            method, method.getFullName() + " renders a versioned UPDATE outside VersionedUpdate"));
+                }
+            }
+        };
+    }
+
+    private static ArchCondition<JavaMethod> notOrderByAnIdColumn() {
+        return new ArchCondition<>("not order by a generated id column") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                boolean orders = method.getMethodCallsFromSelf().stream()
+                        .anyMatch(call -> ORDERING_METHODS.contains(call.getName())
+                                && call.getTarget().getOwner().getPackageName().startsWith("org.jooq"));
+                if (orders && touchesGeneratedField(method, "ID")) {
+                    events.add(SimpleConditionEvent.violated(
+                            method, method.getFullName() + " orders by a generated id column"));
+                }
+            }
+        };
+    }
+
+    private static boolean touchesGeneratedField(JavaMethod method, String fieldName) {
+        for (JavaFieldAccess access : method.getFieldAccesses()) {
+            if (!access.getTarget().getName().equals(fieldName)) {
+                continue;
+            }
+            String owner = access.getTarget().getOwner().getPackageName();
+            if (owner.equals(BASE + ".db") || owner.startsWith(BASE + ".db.")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static ArchRule runtimeSilentAnnotationRule() {
         ArchRule rule = null;
         for (String annotation : RUNTIME_SILENT_ANNOTATIONS) {
@@ -395,5 +471,15 @@ class BanListArchTest {
     @Test
     void noLombokOrMapStruct() {
         NO_LOMBOK_OR_MAPSTRUCT.check(MAIN);
+    }
+
+    @Test
+    void versionedTableUpdatesGoThroughHelper() {
+        VERSIONED_TABLE_UPDATES_GO_THROUGH_HELPER.check(MAIN);
+    }
+
+    @Test
+    void noOrderByIdOutsidePager() {
+        NO_ORDER_BY_ID_OUTSIDE_PAGER.check(MAIN);
     }
 }

@@ -64,6 +64,7 @@ Toolchain: `mise install` reads `mise.toml` (Java 25, Maven 3.9, Node 24, osv-sc
 | `src/test/java/` | Every architecture, contract, convention and integration test; `...fixtures/` holds one violating fixture per ban rule |
 | `openapi/v1.json` | The committed, normalized contract the build diffs; a frontend's generated client types come from it |
 | `codegen/` | The jOOQ codegen runner, launched as a Java source-file program so it needs nothing compiled first |
+| `rulesets/openapi.yaml` | The five vacuum lints the committed document passes; `scripts/vacuum-openapi.mjs` runs them |
 | `scripts/wall.mjs` | The whole wall as one command; the template's CI and a project's `backend` job both run it |
 | `scripts/` | The wall's parts: forbidden flags, squawk, codegen drift, osv-scanner; `init.mjs`; and `_lib.mjs`, the helpers they share. Node, standard library only |
 | `project-root/` | What a project needs at its root: `.github/workflows/ci.yml` (backend + frontend jobs), `.github/rulesets/main.json`, `compose.yaml`, `frontend/README.md`, `.specify/memory/constitution.md`, `CLAUDE.md`, `scripts/` (ruleset, pins, required-checks, frontend gate). `init.mjs` lifts it when vendored |
@@ -76,7 +77,7 @@ Compile wall (Error Prone, NullAway, JSpecify; empty catch and dropped future ar
 pin, no dynamic versions, jqwik ceiling, banned dependencies). Spotless. An executable ban list with a
 coverage meta-test and a negative-control fixture per rule. Layering. Migration conventions with negative
 fixtures, plus squawk. jOOQ regenerated twice from the migrations and diffed. Error catalog snapshot.
-OpenAPI document normalized and snapshotted, rerun under another timezone. Error edge tests: every error
+OpenAPI document normalized and snapshotted, rerun under another timezone, and linted by vacuum against a committed ruleset. Error edge tests: every error
 coded, the 500 leaks nothing and its incident id resolves to one log event. Property tests on `Money`.
 Integration tests on real PostgreSQL. JaCoCo floor. Licence allowlist. SBOM plus osv-scanner with a
 committed suppression inventory. At the project root: SHA-pinned actions, a required-checks assertion
@@ -87,7 +88,9 @@ moving a pin.
 
 Copy the `greeting` package's shape: a migration under `src/main/resources/db/migration`, `mvn -Pcodegen
 generate-sources`, a `*ErrorCode` enum (add it to `ErrorCatalogSnapshotTest`), a service that goes through
-`Tx`, a controller, an `*IT` against Testcontainers. The build tells you when the error-catalog or OpenAPI
+`Tx`, a controller, an `*IT` against Testcontainers, and an owner row for the new table in
+`TableOwnershipTest.OWNERS`. If the table carries a `version` column, every `UPDATE` on it goes through
+`VersionedUpdate` — the ban list refuses any other spelling. The build tells you when the error-catalog or OpenAPI
 snapshot needs a deliberate update and writes the new copy under `target/`. Then delete `greeting`.
 
 ## Provenance

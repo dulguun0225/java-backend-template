@@ -1,0 +1,68 @@
+# The project wall on GitLab, mirroring .github/workflows/ci.yml job for job: `backend` runs backend/scripts/wall.mjs,
+# `frontend` runs scripts/frontend-gate.mjs. Everything fails on its own exit code; nothing is advisory. The toolchain
+# is whatever backend/mise.toml pins, installed by mise here exactly as on a developer machine.
+#
+# Runner requirement: the wall needs a Docker daemon (Testcontainers, jOOQ codegen). This file uses the docker:dind
+# service, which needs a docker-executor runner with `privileged = true`; on a shell runner with Docker installed,
+# drop the `services` block and the DOCKER_* / TESTCONTAINERS_* variables.
+
+stages: [wall]
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+variables:
+  GIT_DEPTH: "0" # squawk lints the migrations the change touches: it needs the base commit
+  MISE_VERSION: v2026.9.7 # same pin as jdx/mise-action in .github/workflows/ci.yml
+  MISE_DATA_DIR: $CI_PROJECT_DIR/.mise
+  MISE_YES: "1"
+  MAVEN_OPTS: -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  TESTCONTAINERS_HOST_OVERRIDE: docker
+
+.mise:
+  image: ubuntu:24.04
+  interruptible: true
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates curl git >/dev/null
+    - curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise sh
+    - cd backend && mise trust && mise install && cd ..
+  cache:
+    key:
+      files: [backend/pom.xml, backend/mise.toml]
+    paths: [.m2/repository, .mise]
+
+backend:
+  extends: .mise
+  stage: wall
+  timeout: 40m
+  services:
+    - name: docker:28-dind
+      alias: docker
+  script:
+    - cd backend
+    - mise exec -- node scripts/wall.mjs "${CI_MERGE_REQUEST_DIFF_BASE_SHA:-$CI_COMMIT_BEFORE_SHA}"
+  artifacts:
+    name: verdicts
+    when: always
+    paths:
+      - backend/target/classes/META-INF/sbom/application.cdx.json
+      - backend/target/osv-results.json
+      - backend/target/failsafe-reports/*.xml
+      - backend/target/surefire-reports/*.xml
+    reports:
+      junit:
+        - backend/target/surefire-reports/TEST-*.xml
+        - backend/target/failsafe-reports/TEST-*.xml
+
+frontend:
+  extends: .mise
+  stage: wall
+  timeout: 20m
+  script:
+    - cd backend && mise exec -- node ../scripts/frontend-gate.mjs

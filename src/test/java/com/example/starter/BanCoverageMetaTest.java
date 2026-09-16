@@ -53,7 +53,8 @@ class BanCoverageMetaTest {
         DOUBLE_FLOAT_FOR_MONEY,
         ORDER_BY_ID_COLUMN,
         INLINE_WIRE_CODE,
-        SETSCALE_WITHOUT_POLICY
+        SETSCALE_WITHOUT_POLICY,
+        HAND_WRITTEN_VERSIONED_UPDATE
     }
 
     static {
@@ -79,10 +80,9 @@ class BanCoverageMetaTest {
                 new BanGate(
                         Tier.DEFERRED,
                         "needs a type scan of fields and signatures; convention today, Money carries every amount"));
+        GATES.put(Ban.ORDER_BY_ID_COLUMN, new BanGate(Tier.ARCHUNIT, "noOrderByIdOutsidePager"));
         GATES.put(
-                Ban.ORDER_BY_ID_COLUMN,
-                new BanGate(
-                        Tier.DEFERRED, "needs a query AST; convention today, KeysetPager owns the only id tiebreak"));
+                Ban.HAND_WRITTEN_VERSIONED_UPDATE, new BanGate(Tier.ARCHUNIT, "versionedTableUpdatesGoThroughHelper"));
         GATES.put(
                 Ban.INLINE_WIRE_CODE,
                 new BanGate(

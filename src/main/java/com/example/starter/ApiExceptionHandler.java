@@ -2,6 +2,7 @@ package com.example.starter;
 
 import com.example.starter.platform.DecimalNotStringException;
 import com.example.starter.platform.Ids;
+import com.example.starter.platform.error.Rejected;
 import com.example.starter.platform.error.ValidationFailed;
 import com.example.starter.platform.observability.Log;
 import com.example.starter.platform.observability.LogContext;
@@ -25,8 +26,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * message. Extends {@link ResponseEntityExceptionHandler} so Spring's standard MVC exceptions keep their
  * status mappings; only a genuinely unexpected throwable reaches the 500 path.
  *
- * <p>Business rejections are not handled here: each feature's controller maps its own outcomes from its
- * {@code *ErrorCode}. This is purely the edge.
+ * <p>Business rejections arrive as {@link Rejected} carrying the feature's own catalog code; this class only
+ * renders them.
  */
 @RestControllerAdvice
 class ApiExceptionHandler extends ResponseEntityExceptionHandler {
@@ -54,6 +55,14 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         body.setProperty("code", ApiErrorCode.VALIDATION_FAILED.wire());
         body.setProperty("errors", ex.errors());
         return ResponseEntity.status(ApiErrorCode.VALIDATION_FAILED.status()).body(body);
+    }
+
+    /** A coded business rejection: the feature's own catalog code at the status that code declares. */
+    @ExceptionHandler(Rejected.class)
+    ResponseEntity<Object> handleRejected(Rejected ex) {
+        ProblemDetail body = ProblemDetail.forStatus(ex.code().status());
+        body.setProperty("code", ex.code().wire());
+        return ResponseEntity.status(ex.code().status()).body(body);
     }
 
     /**
