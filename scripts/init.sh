@@ -15,7 +15,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ "$pkg" =~ ^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$ ]] || { echo "--package must be a lowercase dotted java package" >&2; exit 2; }
-[[ "$name" =~ ^[a-z][a-z0-9-]*$ ]] || { echo "--name must be lowercase, digits and hyphens" >&2; exit 2; }
+[[ "$name" =~ ^[a-z][a-z0-9_-]*$ ]] || { echo "--name must be lowercase letters, digits, hyphens or underscores" >&2; exit 2; }
 [[ -n "$group" ]] || group="${pkg%.*}"
 
 old_pkg=com.example.starter; old_path=com/example/starter; old_group=com.example; old_name=starter
