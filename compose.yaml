@@ -1,0 +1,43 @@
+# Local run: PostgreSQL 18 plus the single image. `docker compose up --build`.
+name: starter
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: starter
+      POSTGRES_USER: starter
+      POSTGRES_PASSWORD: starter
+    ports:
+      - "5432:5432"
+    volumes:
+      # PostgreSQL 18 images keep data in a version-specific subdirectory; mount the parent.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U starter -d starter"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+    image: starter-app:dev
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/starter
+      SPRING_DATASOURCE_USERNAME: starter
+      SPRING_DATASOURCE_PASSWORD: starter
+    ports:
+      - "8080:8080"
+    # Pin log rotation on the stdout JSON capture so it cannot eat the disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

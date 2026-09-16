@@ -1,0 +1,73 @@
+# The build wall. Everything here fails the build on its own exit code; nothing is advisory. Every action is
+# pinned to a commit SHA (scripts/check-action-pins.sh enforces it). Linux is the sole arbiter.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wall:
+    name: wall
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Actions are SHA-pinned
+        run: scripts/check-action-pins.sh
+
+      - name: No preview features, no Java agents, in any build or deploy file
+        run: scripts/check-forbidden-flags.sh
+
+      - name: Migration lint (squawk)
+        run: scripts/squawk-changed-migrations.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+
+      - name: Build wall (compile wall, formatter, architecture tests, unit and integration tests, coverage, licence gate)
+        run: mvn -B -ntp verify
+
+      - name: jOOQ classes match the committed migrations (regenerate twice, byte-identical)
+        run: scripts/check-codegen-drift.sh
+
+      - name: OpenAPI document is byte-reproducible under a different timezone and locale
+        env:
+          TZ: Pacific/Kiritimati
+          LANG: tr_TR.UTF-8
+          LC_ALL: tr_TR.UTF-8
+        run: mvn -B -ntp -pl starter-app -am verify -Dit.test=OpenApiSnapshotIT -Dfailsafe.failIfNoSpecifiedTests=false -Djacoco.skip=true -Dspotless.check.skip=true -Dlicense.skip=true -Dcyclonedx.skip=true -Denforcer.skip=true
+
+      - name: Dependency vulnerabilities (osv-scanner over the SBOM)
+        run: scripts/osv-scan.sh
+
+      - name: Required status checks match the committed job names
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/check-required-checks.sh
+
+      - name: Keep the verdict artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verdicts
+          path: |
+            target/classes/META-INF/sbom/application.cdx.json
+            target/osv-results.json
+            starter-app/target/failsafe-reports/*.xml
+            starter-app/target/surefire-reports/*.xml
+            starter-platform/target/surefire-reports/*.xml
+          if-no-files-found: ignore

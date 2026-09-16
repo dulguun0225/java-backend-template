@@ -1,0 +1,15 @@
+# squawk: PostgreSQL migration linter, run in CI over the migrations a change touches, gated on exit code
+# (scripts/squawk-changed-migrations.sh). The default rule set stays on: it carries the four hazards the
+# java-backend-rules skill names (non-concurrent index build, table-rewriting type change, NOT NULL without a
+# default, constraint added without NOT VALID). A migration that must do one of these opts out inline with
+# `-- squawk-ignore <rule>` and says why on the same line.
+pg_version = "18.0"
+
+# Flyway runs each migration inside its own transaction.
+assume_in_transaction = true
+
+excluded_rules = [
+  # Surrogate keys here are `uuid default uuidv7()`; identity columns are a sequence in disguise, which the
+  # primary-keys skill bans. squawk's preference for identity is the opposite convention.
+  "prefer-identity",
+]

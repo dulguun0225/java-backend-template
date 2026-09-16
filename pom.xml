@@ -1,0 +1,358 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- Reactor parent. Every gate the skills name as build-enforceable is wired here once, for every module.
+       Versions are exact pins (Enforcer banDynamicVersions), re-checked at adoption, moved by Renovate PRs.
+       Pin record, 2026-09-16: Java 25 LTS (jdk.java.net/25, GA 2025-09-16), Spring Boot 4.1.1 (github.com/
+       spring-projects/spring-boot/releases, newest GA line on that date). -->
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.1</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.example</groupId>
+  <artifactId>starter-parent</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>starter-parent</name>
+  <description>Java backend template: Spring Boot Web MVC, jOOQ, PostgreSQL, with every build gate pre-wired</description>
+
+  <properties>
+    <java.version>25</java.version>
+    <!-- Boot 4.1.1 manages Tomcat 11.0.24, which carries three critical advisories fixed in 11.0.25
+         (GHSA-9xv2-5v5q-p794, GHSA-gcx9-497g-6cp6, GHSA-h3x4-894j-xpx5, published 2026-08-26). The scan
+         (scripts/osv-scan.sh) fails the build on them, so the pin moves here rather than into
+         osv-scanner.toml. Remove this override once the Boot BOM catches up. Set 2026-09-16. -->
+    <tomcat.version>11.0.26</tomcat.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <base.package>com.example.starter</base.package>
+    <!-- Generated jOOQ tree: excluded from the compile wall, the formatter and every ArchUnit rule. -->
+    <generated.package.path>com/example/starter/db</generated.package.path>
+
+    <errorprone.version>2.50.0</errorprone.version>
+    <nullaway.version>0.14.1</nullaway.version>
+    <spotless.version>3.10.2</spotless.version>
+    <palantir-java-format.version>2.98.0</palantir-java-format.version>
+    <archunit.version>1.5.0</archunit.version>
+    <java-uuid-generator.version>5.1.0</java-uuid-generator.version>
+    <!-- jqwik: 1.9.3 or lower. 1.10.0 shipped a hidden prompt injection into captured test output and 1.10.1
+         prints an overt "ignore all results" clause into test stdout. The pin is a safety control, not version
+         hygiene; the Enforcer rule below fails the build above it. Owner of record: the llm-default-traps skill. -->
+    <jqwik.version>1.9.3</jqwik.version>
+    <jspecify.version>1.0.0</jspecify.version>
+    <enforcer.version>3.6.3</enforcer.version>
+    <jacoco.version>0.8.15</jacoco.version>
+    <!-- Coverage floor: this repo's call, not a platform default. The gate is that JaCoCo check fails the
+         build; the number is tuned to the product's risk profile. Per-module override in the module pom. -->
+    <jacoco.line.minimum>0.60</jacoco.line.minimum>
+    <cyclonedx.version>2.9.3</cyclonedx.version>
+    <license-plugin.version>2.7.1</license-plugin.version>
+    <exec-plugin.version>3.6.4</exec-plugin.version>
+    <springdoc.version>3.1.1</springdoc.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.jspecify</groupId>
+        <artifactId>jspecify</artifactId>
+        <version>${jspecify.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.tngtech.archunit</groupId>
+        <artifactId>archunit</artifactId>
+        <version>${archunit.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.uuid</groupId>
+        <artifactId>java-uuid-generator</artifactId>
+        <version>${java-uuid-generator.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.jqwik</groupId>
+        <artifactId>jqwik</artifactId>
+        <version>${jqwik.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <modules>
+    <module>starter-platform</module>
+    <module>starter-app</module>
+  </modules>
+
+  <build>
+    <plugins>
+      <!-- Enforcer: the pin is the pin. Java version equals the pin, no dynamic versions anywhere, the jqwik
+           ceiling, and the banned-dependency list every module inherits. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${enforcer.version}</version>
+        <executions>
+          <execution>
+            <id>enforce-pins-and-bans</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <requireJavaVersion>
+                  <version>[25,26)</version>
+                  <message>Java is pinned at 25 (LTS). Move the pin deliberately, in one commit, with its source and date.</message>
+                </requireJavaVersion>
+                <requireMavenVersion>
+                  <version>[3.9,)</version>
+                </requireMavenVersion>
+                <banDynamicVersions>
+                  <ignores>
+                    <!-- The reactor's own SNAPSHOT is the only moving version allowed. -->
+                    <ignore>com.example:*</ignore>
+                  </ignores>
+                </banDynamicVersions>
+                <banDuplicatePomDependencyVersions/>
+                <bannedDependencies>
+                  <excludes>
+                    <!-- jqwik ceiling (see the property above). -->
+                    <exclude>net.jqwik:*:[1.10,)</exclude>
+                    <!-- Persistence: jOOQ only. JPA, Hibernate, Spring Data in every flavour. -->
+                    <exclude>jakarta.persistence:jakarta.persistence-api</exclude>
+                    <exclude>org.hibernate.orm:*</exclude>
+                    <exclude>org.hibernate:*</exclude>
+                    <exclude>org.springframework.data:spring-data-jpa</exclude>
+                    <exclude>org.springframework.data:spring-data-jdbc</exclude>
+                    <exclude>org.springframework.data:spring-data-relational</exclude>
+                    <exclude>org.springframework.data:spring-data-commons</exclude>
+                    <exclude>org.springframework.boot:spring-boot-starter-data-jpa</exclude>
+                    <exclude>org.springframework.boot:spring-boot-starter-data-jdbc</exclude>
+                    <!-- Web MVC only: the reactive paradigm is banned. -->
+                    <exclude>org.springframework:spring-webflux</exclude>
+                    <exclude>org.springframework.boot:spring-boot-starter-webflux</exclude>
+                    <exclude>io.projectreactor:reactor-core</exclude>
+                    <!-- Records and explicit mappers. -->
+                    <exclude>org.projectlombok:lombok</exclude>
+                    <exclude>org.mapstruct:*</exclude>
+                    <!-- Logging backend pinned to Logback: the others inherit or lose the MDC differently. -->
+                    <exclude>org.springframework.boot:spring-boot-starter-log4j2</exclude>
+                    <exclude>org.apache.logging.log4j:log4j-slf4j2-impl</exclude>
+                    <exclude>org.apache.logging.log4j:log4j-slf4j-impl</exclude>
+                    <exclude>org.slf4j:slf4j-jdk14</exclude>
+                    <exclude>org.slf4j:slf4j-reload4j</exclude>
+                    <exclude>org.slf4j:slf4j-simple</exclude>
+                    <!-- Dead libraries an agent reaches for from training data. -->
+                    <exclude>de.jollyday:*</exclude>
+                    <exclude>javax.measure:jsr-275</exclude>
+                    <exclude>org.jscience:*</exclude>
+                    <!-- Bytecode-weaving agents: instrumentation is visible SDK-level code. -->
+                    <exclude>io.opentelemetry.javaagent:*</exclude>
+                  </excludes>
+                </bannedDependencies>
+              </rules>
+              <fail>true</fail>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Formatter gate: palantir-java-format via Spotless; spotless:check is bound to verify and fails on any
+           unformatted file. Run `mvn spotless:apply` to fix. Generated jOOQ is excluded. -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>${spotless.version}</version>
+        <configuration>
+          <java>
+            <excludes>
+              <exclude>src/main/java/${generated.package.path}/**</exclude>
+            </excludes>
+            <palantirJavaFormat>
+              <version>${palantir-java-format.version}</version>
+            </palantirJavaFormat>
+            <removeUnusedImports/>
+          </java>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Compile wall: Error Prone + NullAway, enforced as compile errors. NullAway treats the base package as
+           null-checked; JSpecify @Nullable marks the exceptions. EmptyCatch and FutureReturnValueIgnored are
+           promoted from WARNING to ERROR because a swallowed exception and a dropped publish future are the two
+           silent failures the skills name. The jdk.compiler exports Error Prone needs are in .mvn/jvm.config.
+           No preview-feature flag anywhere: scripts/check-forbidden-flags.sh greps for it. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <release>${java.version}</release>
+          <showWarnings>true</showWarnings>
+          <compilerArgs>
+            <arg>-XDcompilePolicy=simple</arg>
+            <arg>--should-stop=ifError=FLOW</arg>
+            <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+            <arg>-Xplugin:ErrorProne -XepExcludedPaths:(.*/target/generated-sources/.*|.*/${generated.package.path}/.*|.*/codegen/.*) -Xep:NullAway:ERROR -XepOpt:NullAway:AnnotatedPackages=${base.package} -XepOpt:NullAway:ExcludedFieldAnnotations=org.springframework.boot.test.web.server.LocalServerPort -Xep:EmptyCatch:ERROR -Xep:FutureReturnValueIgnored:ERROR</arg>
+          </compilerArgs>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>com.google.errorprone</groupId>
+              <artifactId>error_prone_core</artifactId>
+              <version>${errorprone.version}</version>
+            </path>
+            <path>
+              <groupId>com.uber.nullaway</groupId>
+              <artifactId>nullaway</artifactId>
+              <version>${nullaway.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+
+      <!-- Coverage gate: JaCoCo check fails the build below the floor. Unit (surefire) and integration (failsafe)
+           runs are recorded separately, merged, and checked once per module at verify. -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <configuration>
+          <excludes>
+            <exclude>${generated.package.path}/**</exclude>
+          </excludes>
+        </configuration>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>prepare-agent-integration</id>
+            <goals>
+              <goal>prepare-agent-integration</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>merge</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>merge</goal>
+            </goals>
+            <configuration>
+              <fileSets>
+                <fileSet>
+                  <directory>${project.build.directory}</directory>
+                  <includes>
+                    <include>jacoco.exec</include>
+                    <include>jacoco-it.exec</include>
+                  </includes>
+                </fileSet>
+              </fileSets>
+              <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+            </configuration>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+            <configuration>
+              <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+            </configuration>
+          </execution>
+          <execution>
+            <id>check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <configuration>
+              <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>${jacoco.line.minimum}</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Unit tests: *Test under surefire. Integration tests: *IT under failsafe, Docker required. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- SBOM: the machine-readable dependency inventory the licence gate and the vulnerability scan read.
+           Aggregate over the reactor, written at package to target/classes/META-INF/sbom/application.cdx.json. -->
+      <plugin>
+        <groupId>org.cyclonedx</groupId>
+        <artifactId>cyclonedx-maven-plugin</artifactId>
+        <version>${cyclonedx.version}</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>makeAggregateBom</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <outputFormat>json</outputFormat>
+        </configuration>
+      </plugin>
+
+      <!-- Licence gate, deny by default: every dependency's licence must be on the committed allowlist in
+           licenses/allowlist.txt; unknown or undeclared fails. Spelling variants are folded in licenses/merges.txt. -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>license-maven-plugin</artifactId>
+        <version>${license-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>licence-allowlist</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>add-third-party</goal>
+            </goals>
+            <configuration>
+              <includedLicenses>file:///${maven.multiModuleProjectDirectory}/licenses/allowlist.txt</includedLicenses>
+              <licenseMergesUrl>file:///${maven.multiModuleProjectDirectory}/licenses/merges.txt</licenseMergesUrl>
+              <failOnMissing>true</failOnMissing>
+              <failOnBlacklist>true</failOnBlacklist>
+              <excludedScopes>test</excludedScopes>
+              <useMissingFile>false</useMissingFile>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

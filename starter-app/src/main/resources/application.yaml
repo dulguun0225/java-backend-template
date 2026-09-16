@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: starter
+  main:
+    # Recommended, not required: keeps the JVM alive if every non-daemon thread is virtual.
+    keep-alive: true
+  threads:
+    virtual:
+      # One virtual thread per task, never pooled. ConfigDefaultsTest pins this.
+      enabled: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  datasource:
+    # The DataSource URL and credentials come from the environment (Testcontainers in tests, SPRING_DATASOURCE_*
+    # in compose and deployments), never from here. The pool is the database semaphore: small, fixed, committed,
+    # never scaled to the thread count.
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 10
+
+# Structured ECS JSON on stdout (Spring Boot native). The typed facade in platform.observability is the sole
+# emitter; the mandatory fields are bound at emit time.
+logging:
+  structured:
+    format:
+      console: ecs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+# The contract: /v3/api-docs is the generated OpenAPI 3.1 document that OpenApiSnapshotIT normalizes and diffs
+# against openapi/v1.json. No Swagger UI in the image; a browsable UI is a separate concern.
+springdoc:
+  api-docs:
+    version: openapi_3_1

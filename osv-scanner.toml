@@ -1,0 +1,9 @@
+# The vulnerability-scan suppression inventory: committed, diffed, and the only place a finding may be
+# accepted. Every entry names the advisory, the reason, and an expiry after which the build fails again.
+# Empty is the desired state. Prefer moving the pin (a `<x.version>` property override in pom.xml) to
+# suppressing; an entry here is for an advisory with no fixed release yet.
+#
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# reason = "no fixed release; the vulnerable code path (DIGEST authenticator) is not reachable, no auth configured"
+# ignoreUntil = 2026-10-16
