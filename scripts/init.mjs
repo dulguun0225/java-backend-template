@@ -121,7 +121,15 @@ main(() => {
       const rel = path.relative('project-root', path.join(f.parentPath, f.name));
       const dest = path.join('..', rel);
       if (fs.existsSync(dest)) {
-        console.log(`kept existing ../${rel.split(path.sep).join('/')} (template copy not applied)`);
+        const shown = rel.split(path.sep).join('/');
+        if (shown === '.specify/memory/constitution.md') {
+          console.log(
+            `WARNING: kept existing ../${shown}; the template's platform articles (I–VI) were NOT applied. ` +
+              'spec-kit ran before the scaffold: merge them in by hand, or /speckit.plan will re-plan the stack.',
+          );
+        } else {
+          console.log(`kept existing ../${shown} (template copy not applied)`);
+        }
       } else {
         fs.mkdirSync(path.dirname(dest), { recursive: true });
         const source = path.join(f.parentPath, f.name);
