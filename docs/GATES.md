@@ -1,6 +1,6 @@
 # Gates
 
-Every check `mvn verify` and `.github/workflows/ci.yml` run, the skill directive it implements, and where it
+Every check `mvn verify` (in `backend/`) and `.github/workflows/ci.yml` run, the skill directive it implements, and where it
 lives. Then the directives the skills name that nothing here reaches, so a reader does not mistake a green
 build for coverage of them. Skill names are the directories under `skills/` in `dulguun0225/skills`.
 
@@ -39,6 +39,7 @@ in the workflow that fails on exit code. Nothing is advisory.
 | Every action SHA-pinned | ci | `scripts/check-action-pins.sh` | llm-default-traps *CI actions and scanners are SHA-pinned* |
 | Required status checks on the default branch equal the committed job names | ci | `scripts/check-required-checks.sh`, `.github/rulesets/main.json` | guardrails-toolchain layer clause on *fails the build* (the forge's settings are not a committed file) |
 | Named path for moving a pin | process | `renovate.json` | llm-default-traps composite condition on SHA pins |
+| Frontend: a required `frontend` job that states nothing gates the frontend while it is empty, and demands a lockfile-exact install plus a `check` script the moment `frontend/package.json` exists | ci | `scripts/frontend-gate.sh`, `frontend/README.md` | guardrails-toolchain *Record what stayed advisory*; no published skill governs a frontend, and the row says so |
 
 ## Named gaps: directives with no gate here
 

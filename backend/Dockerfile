@@ -1,6 +1,6 @@
 # The single deployable image. Multi-stage so `docker compose up --build` is self-contained. Tests are skipped in
 # the image build: the wall runs in CI, and Testcontainers needs a Docker daemon this build does not have.
-# No Java agent anywhere (ForbiddenFlagsTest greps this file). Pin both base images by digest in a real
+# Build context is backend/ (compose.yaml). No Java agent anywhere (ForbiddenFlagsTest greps this file). Pin both base images by digest in a real
 # deployment; tags are used here so the template does not rot on a stale digest.
 FROM maven:3.9-eclipse-temurin-25 AS build
 WORKDIR /build

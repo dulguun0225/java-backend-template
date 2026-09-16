@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 tokens='(--enable-preview|-javaagent|opentelemetry-javaagent|otel-javaagent|aws-opentelemetry-agent)'
-files=$(git ls-files -- 'pom.xml' '*/pom.xml' '.mvn/*' 'Dockerfile' '*.Dockerfile' 'compose*.yaml' '.github/workflows/*' 'scripts/*' | grep -v 'scripts/check-forbidden-flags.sh')
+files=$(git ls-files -- 'backend/pom.xml' 'backend/.mvn/*' 'backend/Dockerfile' 'compose*.yaml' '.github/workflows/*' 'scripts/*' 'frontend/*' | grep -v 'scripts/check-forbidden-flags.sh')
 if grep -nE "$tokens" $files; then
   echo "forbidden flag found (see lines above)" >&2; exit 1
 fi

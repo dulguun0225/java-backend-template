@@ -1,4 +1,6 @@
-# Local run: PostgreSQL 18 plus the single image. `docker compose up --build`.
+# Local run: PostgreSQL 18 plus the service image. `docker compose up --build`.
+# The micro-frontend is a separate static deploy (served by the shell or a CDN, never by this service); when
+# frontend/ has a build, add a static file server here for local runs, pointed at its dist/ output.
 name: starter
 
 services:
@@ -21,7 +23,7 @@ services:
 
   api:
     build:
-      context: .
+      context: ./backend
     image: starter:dev
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/starter

@@ -3,7 +3,7 @@
 # regenerate twice under a different timezone and locale, assert both runs identical to each other and to the
 # committed tree. Needs Docker (Testcontainers PostgreSQL).
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../backend"
 gen=src/main/java/com/example/starter/db
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 cp -r "$gen" "$work/committed"

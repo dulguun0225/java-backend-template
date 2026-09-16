@@ -27,13 +27,14 @@ class ForbiddenFlagsTest {
 
     @Test
     void noAgentOrPreviewFlagInBuildOrDeployFiles() throws IOException {
-        Path root = Path.of("").toAbsolutePath();
+        Path backend = Path.of("").toAbsolutePath(); // surefire cwd = backend/
+        Path root = backend.resolve("..").normalize();
 
         List<Path> files = new ArrayList<>();
-        addIfExists(files, root.resolve("Dockerfile"));
+        addIfExists(files, backend.resolve("Dockerfile"));
         addIfExists(files, root.resolve("compose.yaml"));
-        addIfExists(files, root.resolve(".mvn/jvm.config"));
-        addIfExists(files, root.resolve("pom.xml"));
+        addIfExists(files, backend.resolve(".mvn/jvm.config"));
+        addIfExists(files, backend.resolve("pom.xml"));
         assertThat(files)
                 .as("the scan found too few files; check the Dockerfile, compose, jvm.config and pom locations")
                 .anyMatch(p -> p.getFileName().toString().equals("Dockerfile"))
