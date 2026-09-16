@@ -129,14 +129,14 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(code.status()).body(body);
     }
 
+    /** Walks the cause chain with a hop bound instead of a self-reference check, so a cyclic chain still terminates. */
     private static boolean hasCause(Throwable ex, Class<? extends Throwable> type) {
-        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+        Throwable cause = ex;
+        for (int hops = 0; cause != null && hops < 32; hops++) {
             if (type.isInstance(cause)) {
                 return true;
             }
-            if (cause.getCause() == cause) {
-                break;
-            }
+            cause = cause.getCause();
         }
         return false;
     }
