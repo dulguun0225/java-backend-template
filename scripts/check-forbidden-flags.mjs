@@ -15,7 +15,7 @@ main(() => {
   // Vendored into a project: the project's compose and workflows one level up are deploy files too.
   const top = capture('git', ['rev-parse', '--show-toplevel']);
   if (path.relative(top, fs.realpathSync(root)) !== '') {
-    files = files.concat(lines(capture('git', ['ls-files', '--', '../compose*.yaml', '../.github/workflows/*'], { check: false })));
+    files = files.concat(lines(capture('git', ['ls-files', '--', '../compose*.yaml', '../.github/workflows/*', '../.gitlab-ci.yml'], { check: false })));
   }
   if (files.length === 0) throw new Fail('no build or deploy files found to scan');
   let found = false;

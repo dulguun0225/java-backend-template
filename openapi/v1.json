@@ -1,5 +1,13 @@
 {
   "components" : {
+    "headers" : {
+      "ETag" : {
+        "description" : "Strong ETag, the quoted decimal of the row's version, e.g. \"3\". Never weak.",
+        "schema" : {
+          "type" : "string"
+        }
+      }
+    },
     "schemas" : {
       "CreateGreetingRequest" : {
         "properties" : {
@@ -27,6 +35,48 @@
           }
         },
         "type" : "object"
+      },
+      "Problem" : {
+        "properties" : {
+          "code" : {
+            "description" : "Stable machine code from one of the *ErrorCode catalogs",
+            "type" : "string"
+          },
+          "errors" : {
+            "description" : "Present only on validation.failed",
+            "items" : {
+              "properties" : {
+                "code" : {
+                  "description" : "A FieldCode wire string, e.g. validation.required",
+                  "type" : "string"
+                },
+                "pointer" : {
+                  "description" : "RFC 6901 JSON pointer, e.g. /name",
+                  "type" : "string"
+                }
+              },
+              "required" : [ "code", "pointer" ],
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "incidentId" : {
+            "description" : "Present only on platform.internal (500)",
+            "type" : "string"
+          },
+          "status" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "code", "status" ],
+        "type" : "object"
       }
     }
   },
@@ -38,7 +88,7 @@
   "paths" : {
     "/api/greetings" : {
       "post" : {
-        "operationId" : "create",
+        "operationId" : "createGreeting",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -50,7 +100,7 @@
           "required" : true
         },
         "responses" : {
-          "200" : {
+          "201" : {
             "content" : {
               "*/*" : {
                 "schema" : {
@@ -58,15 +108,26 @@
                 }
               }
             },
-            "description" : "OK"
+            "description" : "Created. `Location` is the new greeting's URL."
+          },
+          "400" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "validation.failed, validation.malformed-body"
           }
         },
+        "summary" : "Create one greeting",
         "tags" : [ "greeting-controller" ]
       }
     },
     "/api/greetings/{id}" : {
       "get" : {
-        "operationId" : "get",
+        "operationId" : "getGreeting",
         "parameters" : [ {
           "in" : "path",
           "name" : "id",
@@ -81,13 +142,24 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "type" : "object"
+                  "$ref" : "#/components/schemas/GreetingView"
                 }
               }
             },
             "description" : "OK"
+          },
+          "404" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "not-found"
           }
         },
+        "summary" : "One greeting by its opaque id",
         "tags" : [ "greeting-controller" ]
       }
     }

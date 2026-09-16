@@ -6,3 +6,6 @@ maven = "3.9.16"
 node = "24.21.0"
 # The vulnerability scanner the wall runs (scripts/osv-scan.mjs); one pin for every platform instead of a per-OS download.
 osv-scanner = "2.6.0"
+# The OpenAPI ruleset linter the wall runs (scripts/vacuum-openapi.mjs). Registry entry checked 2026-09-16:
+# mise's registry maps `vacuum` to `aqua:daveshanley/vacuum`, and `mise ls-remote vacuum` resolves it to 0.30.5.
+vacuum = "0.30.5"

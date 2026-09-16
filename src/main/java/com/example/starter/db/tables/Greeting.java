@@ -72,6 +72,11 @@ public class Greeting extends TableImpl<GreetingRecord> {
      */
     public final TableField<GreetingRecord, OffsetDateTime> CREATED_AT = createField(DSL.name("created_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false), this, "");
 
+    /**
+     * The column <code>greeting.version</code>.
+     */
+    public final TableField<GreetingRecord, Integer> VERSION = createField(DSL.name("version"), SQLDataType.INTEGER.nullable(false), this, "");
+
     private Greeting(Name alias, Table<GreetingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -119,7 +124,7 @@ public class Greeting extends TableImpl<GreetingRecord> {
     @Override
     public List<Check<GreetingRecord>> getChecks() {
         return Arrays.asList(
-            Internal.createCheck(this, DSL.name("greeting_name_check"), "(((length(name) >= 1) AND (length(name) <= 100)))", true)
+            Internal.createCheck(this, DSL.name("greeting_name_check"), "(((char_length(name) >= 1) AND (char_length(name) <= 100)))", true)
         );
     }
 

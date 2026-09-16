@@ -63,6 +63,20 @@ public class GreetingRecord extends UpdatableRecordImpl<GreetingRecord> {
         return (OffsetDateTime) get(2);
     }
 
+    /**
+     * Setter for <code>greeting.version</code>.
+     */
+    public void setVersion(Integer value) {
+        set(3, value);
+    }
+
+    /**
+     * Getter for <code>greeting.version</code>.
+     */
+    public Integer getVersion() {
+        return (Integer) get(3);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -86,12 +100,13 @@ public class GreetingRecord extends UpdatableRecordImpl<GreetingRecord> {
     /**
      * Create a detached, initialised GreetingRecord
      */
-    public GreetingRecord(UUID id, String name, OffsetDateTime createdAt) {
+    public GreetingRecord(UUID id, String name, OffsetDateTime createdAt, Integer version) {
         super(Greeting.GREETING);
 
         setId(id);
         setName(name);
         setCreatedAt(createdAt);
+        setVersion(version);
         resetTouchedOnNotNull();
     }
 }

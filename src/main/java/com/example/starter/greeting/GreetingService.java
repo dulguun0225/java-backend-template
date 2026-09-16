@@ -6,13 +6,13 @@ import com.example.starter.db.tables.records.GreetingRecord;
 import com.example.starter.platform.Ids;
 import com.example.starter.platform.Tx;
 import com.example.starter.platform.error.FieldError;
+import com.example.starter.platform.error.Rejected;
 import com.example.starter.platform.error.ValidationFailed;
 import com.example.starter.platform.observability.Log;
 import com.example.starter.platform.observability.LogField;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -44,14 +44,17 @@ public class GreetingService {
                 .set(GREETING.ID, id)
                 .set(GREETING.NAME, name)
                 .set(GREETING.CREATED_AT, now)
+                .set(GREETING.VERSION, 1)
                 .execute());
         log.info("greeting created", LogField.id("greeting_id", id));
         return new GreetingView(id, name, "Hello, " + name + "!", now);
     }
 
-    public Optional<GreetingView> find(UUID id) {
+    /** The one greeting, or the coded rejection the edge renders as an RFC 9457 problem. */
+    public GreetingView get(UUID id) {
         return tx.read(dsl -> dsl.selectFrom(GREETING).where(GREETING.ID.eq(id)).fetchOptional())
-                .map(GreetingService::toView);
+                .map(GreetingService::toView)
+                .orElseThrow(() -> new Rejected(GreetingErrorCode.NOT_FOUND));
     }
 
     private static String validate(CreateGreetingRequest request) {

@@ -1,6 +1,10 @@
 package com.example.starter.greeting;
 
-import com.example.starter.platform.error.ProblemBody;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.net.URI;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
@@ -12,13 +16,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The HTTP edge of the greeting feature. Business outcomes are mapped here to RFC 9457 problems whose
- * {@code code} comes from {@link GreetingErrorCode}; the framework edge (malformed body, validation) is
- * {@code ApiExceptionHandler}'s. Constructor injection only.
+ * The HTTP edge of the greeting feature. A business outcome leaves the service as a
+ * {@code Rejected} carrying a {@link GreetingErrorCode}, and {@code ApiExceptionHandler} renders it as the
+ * RFC 9457 problem the {@code @ApiResponses} below declare. Constructor injection only.
  */
 @RestController
 @RequestMapping("/api/greetings")
 class GreetingController {
+
+    private static final String PROBLEM_JSON = "application/problem+json";
 
     private final GreetingService greetings;
 
@@ -27,18 +33,30 @@ class GreetingController {
     }
 
     @PostMapping
-    ResponseEntity<GreetingView> create(@RequestBody CreateGreetingRequest request) {
+    @Operation(operationId = "createGreeting", summary = "Create one greeting")
+    @ApiResponses({
+        @ApiResponse(responseCode = "201", description = "Created. `Location` is the new greeting's URL."),
+        @ApiResponse(
+                responseCode = "400",
+                description = "validation.failed, validation.malformed-body",
+                content = @Content(mediaType = PROBLEM_JSON, schema = @Schema(ref = "#/components/schemas/Problem")))
+    })
+    ResponseEntity<GreetingView> createGreeting(@RequestBody CreateGreetingRequest request) {
         GreetingView created = greetings.create(request);
         return ResponseEntity.created(URI.create("/api/greetings/" + created.id()))
                 .body(created);
     }
 
     @GetMapping("/{id}")
-    ResponseEntity<?> get(@PathVariable UUID id) {
-        return greetings
-                .find(id)
-                .<ResponseEntity<?>>map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.status(GreetingErrorCode.NOT_FOUND.status())
-                        .body(ProblemBody.of(GreetingErrorCode.NOT_FOUND)));
+    @Operation(operationId = "getGreeting", summary = "One greeting by its opaque id")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "OK"),
+        @ApiResponse(
+                responseCode = "404",
+                description = "not-found",
+                content = @Content(mediaType = PROBLEM_JSON, schema = @Schema(ref = "#/components/schemas/Problem")))
+    })
+    ResponseEntity<GreetingView> get(@PathVariable UUID id) {
+        return ResponseEntity.ok(greetings.get(id));
     }
 }

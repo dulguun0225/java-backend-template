@@ -1,3 +1,6 @@
+-- squawk-ignore-file prefer-bigint-over-int
+-- (`version` is the optimistic-lock counter of one row: 2^31 updates to a single row is not a reachable
+-- state, and bigint would only widen the ETag's integer type for nothing.)
 -- The worked-example table. Conventions every migration here follows (MigrationConventionsTest and squawk
 -- enforce the mechanical ones):
 --   * timeouts first: a migration that waits on a lock or runs long fails fast instead of stalling a deploy.
@@ -11,8 +14,9 @@ set statement_timeout = '60s';
 
 create table greeting (
     id         uuid primary key default uuidv7(),
-    name       text not null check (length(name) between 1 and 100),
-    created_at timestamptz not null
+    name       text not null check (char_length(name) between 1 and 100),
+    created_at timestamptz not null,
+    version    integer not null
 );
 
 create index greeting_created_at_id_idx on greeting (created_at desc, id desc);

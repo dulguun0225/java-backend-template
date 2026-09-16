@@ -9,6 +9,9 @@ One repo, one service, one micro-frontend.
 - The contract between them is `backend/openapi/v1.json`.
 - `.github/workflows/ci.yml` has two jobs, `backend` and `frontend`, both required on `main` by
   `.github/rulesets/main.json` (`node scripts/apply-ruleset.mjs` applies it). Nothing is advisory.
+- `.gitlab-ci.yml` mirrors those two jobs for a GitLab remote (a docker-executor runner with `privileged = true`
+  for docker:dind). Whichever forge this repo is not on, its file stays: both are deploy files
+  `check-forbidden-flags.mjs` scans, and the ruleset script only means something on GitHub.
 - `.specify/memory/constitution.md` is pre-filled for spec-kit. `/speckit.constitution` amends Article VII
   only, the project's own decisions; Articles I–VI restate what `backend/` already enforces and are not
   re-planned. `/speckit.plan` reads it and must not re-plan the stack or the gates; a plan's Technical

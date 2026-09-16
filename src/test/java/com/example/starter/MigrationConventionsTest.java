@@ -26,6 +26,9 @@ import org.junit.jupiter.api.Test;
  *       composite natural key says so with a {@code -- composite-key:} comment on the statement.
  *   <li>Time: {@code timestamptz}, never bare {@code timestamp}; no clock function in column defaults, because
  *       a database default is a wall-clock read the ArchUnit clock ban cannot see.
+ *   <li>Behaviour: no {@code create trigger} and no {@code create function} — a trigger or a stored
+ *       function is program text outside the program, which the ArchUnit clock and logging bans cannot see.
+ *   <li>Text length: {@code octet_length} is banned; a length is characters, never bytes.
  *   <li>Money: a column named {@code *_amount} is {@code numeric(19,4)} or {@code numeric(20,4)}, {@code not
  *       null}, carries a {@code check (... <> 'NaN')}, and has a {@code *_currency} sibling that is {@code not
  *       null}. {@code real}, {@code double precision}, {@code float} and the PostgreSQL {@code money} type are
@@ -91,6 +94,16 @@ class MigrationConventionsTest {
         }
         if (find(lower, "\\b(real|double\\s+precision|float\\d*|money)\\b")) {
             out.add(new Violation(name, "float-or-money-type"));
+        }
+
+        if (find(lower, "create\\s+(or\\s+replace\\s+)?trigger\\b")) {
+            out.add(new Violation(name, "trigger"));
+        }
+        if (find(lower, "create\\s+(or\\s+replace\\s+)?function\\b")) {
+            out.add(new Violation(name, "function"));
+        }
+        if (find(lower, "\\boctet_length\\s*\\(")) {
+            out.add(new Violation(name, "octet-length"));
         }
 
         Matcher tables = Pattern.compile(

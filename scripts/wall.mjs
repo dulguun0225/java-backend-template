@@ -32,6 +32,9 @@ main(() => {
     { env: { TZ: 'Pacific/Kiritimati', LANG: 'tr_TR.UTF-8', LC_ALL: 'tr_TR.UTF-8' } },
   );
 
+  step('OpenAPI document passes the vacuum ruleset (no offset/page, no PATCH, limit maximum, problem schema, temporal naming)');
+  script('vacuum-openapi.mjs');
+
   step('Dependency vulnerabilities (osv-scanner over the SBOM)');
   script('osv-scan.mjs');
 
