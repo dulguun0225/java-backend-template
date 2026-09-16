@@ -12,7 +12,7 @@ the reason and the date recorded in `pom.xml`.
 
 ## Article II. The gates are the review
 
-Code here is written by agents and read line by line by nobody. `mvn verify` is the definition of done and
+Code here is written by agents and read line by line by nobody. `mvn verify` in `backend/` is the definition of done and
 every check in it fails the build on its own: the compile wall (Error Prone, NullAway, JSpecify), the
 formatter, the executable ban list with its coverage and negative-control meta-tests, the layering test,
 the migration lint, the error-catalog and OpenAPI snapshots, the integration suite against a real
@@ -33,13 +33,21 @@ One OpenAPI document per major version, generated from the code, normalized by t
 diffed on every build. Every error is an RFC 9457 problem with a machine `code` from a compile-checked
 catalog that is itself snapshotted. Pagination is keyset only. `PATCH` does not exist.
 
-## Article V. Features are packages
+## Article V. One repo, one service, one micro-frontend
+
+The service lives under `backend/` and is API-only. The micro-frontend lives under `frontend/`, builds to
+static assets and deploys separately; the service never serves it. The two share one contract,
+`backend/openapi/v1.json`, and one CI, whose `backend` and `frontend` jobs are both required on `main`.
+The frontend's mechanism for being loaded by a shell is decided when a shell exists, at one named
+exposure point, and nowhere else.
+
+## Article VI. Features are packages
 
 A feature is one package under the base package, depending on the platform tier and never on another
 feature. It owns its migrations, its error catalog, its service, its controller and its integration test.
 The `greeting` package is the worked shape; copy it, then delete it.
 
-## Article VI. Project-specific articles
+## Article VII. Project-specific articles
 
 <!-- Add what this product decides that the template does not: domain invariants, the coverage floor and
      why, the money precision (numeric(19,4) vs (20,4)), the idempotency status code for a same-key

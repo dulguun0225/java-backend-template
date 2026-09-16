@@ -6,9 +6,9 @@ cd "$(dirname "$0")/.."
 SQUAWK_VERSION=2.65.0
 base="${1:-}"
 if [[ -n "$base" && "$base" != 0000000000000000000000000000000000000000 ]] && git cat-file -e "$base" 2>/dev/null; then
-  mapfile -t files < <(git diff --name-only --diff-filter=AM "$base"...HEAD -- '*/db/migration/*.sql')
+  mapfile -t files < <(git diff --name-only --diff-filter=AM "$base"...HEAD -- 'backend/src/main/resources/db/migration/*.sql')
 else
-  mapfile -t files < <(git ls-files -- '*/db/migration/*.sql')
+  mapfile -t files < <(git ls-files -- 'backend/src/main/resources/db/migration/*.sql')
 fi
 if [[ ${#files[@]} -eq 0 ]]; then echo "no migrations changed"; exit 0; fi
 printf 'linting %s migration(s)\n' "${#files[@]}"

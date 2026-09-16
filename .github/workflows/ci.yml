@@ -15,10 +15,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  wall:
-    name: wall
+  backend:
+    name: backend
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -30,19 +33,19 @@ jobs:
           cache: maven
 
       - name: Actions are SHA-pinned
-        run: scripts/check-action-pins.sh
+        run: ../scripts/check-action-pins.sh
 
       - name: No preview features, no Java agents, in any build or deploy file
-        run: scripts/check-forbidden-flags.sh
+        run: ../scripts/check-forbidden-flags.sh
 
       - name: Migration lint (squawk)
-        run: scripts/squawk-changed-migrations.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+        run: ../scripts/squawk-changed-migrations.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
       - name: Build wall (compile wall, formatter, architecture tests, unit and integration tests, coverage, licence gate)
         run: mvn -B -ntp verify
 
       - name: jOOQ classes match the committed migrations (regenerate twice, byte-identical)
-        run: scripts/check-codegen-drift.sh
+        run: ../scripts/check-codegen-drift.sh
 
       - name: OpenAPI document is byte-reproducible under a different timezone and locale
         env:
@@ -52,12 +55,12 @@ jobs:
         run: mvn -B -ntp verify -Dit.test=OpenApiSnapshotIT -Dtest=NoSuchTest -Dsurefire.failIfNoSpecifiedTests=false -Djacoco.skip=true -Dspotless.check.skip=true -Dlicense.skip=true -Dcyclonedx.skip=true -Denforcer.skip=true
 
       - name: Dependency vulnerabilities (osv-scanner over the SBOM)
-        run: scripts/osv-scan.sh
+        run: ../scripts/osv-scan.sh
 
       - name: Required status checks match the committed job names
         env:
           GH_TOKEN: ${{ github.token }}
-        run: scripts/check-required-checks.sh
+        run: ../scripts/check-required-checks.sh
 
       - name: Keep the verdict artifacts
         if: always()
@@ -65,8 +68,17 @@ jobs:
         with:
           name: verdicts
           path: |
-            target/classes/META-INF/sbom/application.cdx.json
-            target/osv-results.json
-            target/failsafe-reports/*.xml
-            target/surefire-reports/*.xml
+            backend/target/classes/META-INF/sbom/application.cdx.json
+            backend/target/osv-results.json
+            backend/target/failsafe-reports/*.xml
+            backend/target/surefire-reports/*.xml
           if-no-files-found: ignore
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Frontend gate
+        run: scripts/frontend-gate.sh

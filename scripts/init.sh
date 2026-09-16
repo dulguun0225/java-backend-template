@@ -35,13 +35,13 @@ new_parent=$(dirname "$new_path"); new_leaf=$(basename "$new_path")
 # prose that names the test-only sibling packages by their leaf (docs, CLAUDE.md)
 sed -i -E "s/\b${old_leaf}(fixtures|test)\b/${new_leaf}\1/g" $files
 for src in main test; do
-  for d in "src/${src}/java/${old_parent}/${old_leaf}"*; do
+  for d in "backend/src/${src}/java/${old_parent}/${old_leaf}"*; do
     [[ -d "$d" ]] || continue
     suffix="${d##*/${old_leaf}}"
-    t="src/${src}/java/${new_parent}/${new_leaf}${suffix}"
+    t="backend/src/${src}/java/${new_parent}/${new_leaf}${suffix}"
     mkdir -p "$(dirname "$t")"; git mv "$d" "$t"
   done
 done
 find . -type d -empty -not -path './.git/*' -delete
 echo "renamed: package ${pkg}, group ${group}, artifact ${name}"
-echo "next: mvn -Pcodegen generate-sources && mvn verify, then commit"
+echo "next: (cd backend && mvn -Pcodegen generate-sources && mvn verify), then commit"
