@@ -25,7 +25,7 @@
     <java.version>25</java.version>
     <!-- Boot 4.1.1 manages Tomcat 11.0.24, which carries three critical advisories fixed in 11.0.25
          (GHSA-9xv2-5v5q-p794, GHSA-gcx9-497g-6cp6, GHSA-h3x4-894j-xpx5, published 2026-08-26). The scan
-         (scripts/osv-scan.sh) fails the build on them, so the pin moves here rather than into
+         (scripts/osv-scan.mjs) fails the build on them, so the pin moves here rather than into
          osv-scanner.toml. Remove this override once the Boot BOM catches up. Set 2026-09-16. -->
     <tomcat.version>11.0.26</tomcat.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -277,7 +277,7 @@
            null-checked; JSpecify @Nullable marks the exceptions. EmptyCatch and FutureReturnValueIgnored are
            promoted from WARNING to ERROR because a swallowed exception and a dropped publish future are the two
            silent failures the skills name. The jdk.compiler exports Error Prone needs are in .mvn/jvm.config.
-           No preview-feature flag anywhere: scripts/check-forbidden-flags.sh greps for it. -->
+           No preview-feature flag anywhere: scripts/check-forbidden-flags.mjs scans for it. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
@@ -446,7 +446,7 @@
   <profiles>
     <!-- `mvn -Pcodegen generate-sources` regenerates the committed jOOQ classes from the Flyway schema against a
          Testcontainers PostgreSQL. Bound to generate-sources and run through the java launcher's source-file mode,
-         so nothing of this project has to compile first. CI runs it twice and diffs (scripts/check-codegen-drift.sh). -->
+         so nothing of this project has to compile first. CI runs it twice and diffs (scripts/check-codegen-drift.mjs). -->
     <profile>
       <id>codegen</id>
       <build>

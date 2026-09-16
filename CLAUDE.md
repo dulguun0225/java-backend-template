@@ -31,7 +31,7 @@ gate here disagree, the gate is wrong or stale: fix the gate, do not bypass it.
 
 ## Working here
 
-- `scripts/wall.sh` is exactly what CI runs: forbidden flags, squawk, `mvn verify`, the jOOQ regenerate-twice drift check, the OpenAPI rerun under another timezone, the vulnerability scan. Docker required.
+- `node scripts/wall.mjs` is exactly what CI runs: forbidden flags, squawk, `mvn verify`, the jOOQ regenerate-twice drift check, the OpenAPI rerun under another timezone, the vulnerability scan. Docker required. Scripts are Node, standard library only; `mise install` gives the pinned Node.
 - `mvn spotless:apply` formats. `mvn -Pcodegen generate-sources` regenerates jOOQ after a migration; it runs before compile, so it works while main code still references a table that does not exist yet.
 - A new wire error code goes in a catalog enum and in `ErrorCatalogSnapshotTest`'s list; the build tells you when the snapshot needs updating.
 - A new endpoint changes `openapi/v1.json`; the build writes the actual document to `target/` and tells you to review and copy it.

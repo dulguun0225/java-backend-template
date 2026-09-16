@@ -1,0 +1,39 @@
+// The backend wall, as one command. Both the template's own CI and a project's `backend` job run exactly this,
+// so the two workflows cannot drift on what "green" means. Needs Docker (Testcontainers) and network.
+// Usage: node scripts/wall.mjs [base-sha]   (the base sha scopes the migration lint to the change; omit for all)
+import path from 'node:path';
+import { main, run } from './_lib.mjs';
+
+const here = import.meta.dirname;
+const script = (name, ...args) => run(process.execPath, [path.join(here, name), ...args]);
+const step = (title) => console.log(`\n==> ${title}`);
+
+main(() => {
+  process.chdir(path.resolve(here, '..'));
+  const base = process.argv[2] ?? '';
+
+  step('No preview features, no Java agents, in any build or deploy file');
+  script('check-forbidden-flags.mjs');
+
+  step('Migration lint (squawk)');
+  script('squawk-changed-migrations.mjs', base);
+
+  step('Build wall: compile wall, formatter, architecture tests, unit and integration tests, coverage, licence gate');
+  run('mvn', ['-B', '-ntp', 'verify']);
+
+  step('jOOQ classes match the committed migrations (regenerate twice, byte-identical)');
+  script('check-codegen-drift.mjs');
+
+  step('OpenAPI document is byte-reproducible under a different timezone and locale');
+  run(
+    'mvn',
+    ['-B', '-ntp', 'verify', '-Dit.test=OpenApiSnapshotIT', '-Dtest=NoSuchTest', '-Dsurefire.failIfNoSpecifiedTests=false',
+      '-Djacoco.skip=true', '-Dspotless.check.skip=true', '-Dlicense.skip=true', '-Dcyclonedx.skip=true', '-Denforcer.skip=true'],
+    { env: { TZ: 'Pacific/Kiritimati', LANG: 'tr_TR.UTF-8', LC_ALL: 'tr_TR.UTF-8' } },
+  );
+
+  step('Dependency vulnerabilities (osv-scanner over the SBOM)');
+  script('osv-scan.mjs');
+
+  step('backend wall green');
+});
