@@ -1,4 +1,8 @@
 [tools]
 # Exact pins: two machines resolving a major differently is a toolchain behaviour change.
-java = "temurin-25.0.4+101.0.LTS"
+java = "liberica-25.0.4.1+1"
 maven = "3.9.16"
+# scripts/*.mjs run on this; Node rather than bash so the wall runs the same on Linux, macOS and Windows.
+node = "24.21.0"
+# The vulnerability scanner the wall runs (scripts/osv-scan.mjs); one pin for every platform instead of a per-OS download.
+osv-scanner = "2.6.0"

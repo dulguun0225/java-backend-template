@@ -6,7 +6,9 @@ service on Spring Boot Web MVC, jOOQ over PostgreSQL 18, Flyway, Maven, Java 25,
 green. A new service spends its first tokens on domain code, not on scaffolding.
 
 The skills carry the decisions and the reasoning. This repo carries the consequences: the pom, the
-executable ban list, the migration lint, the contract snapshots, the wall script. `docs/GATES.md` maps
+executable ban list, the migration lint, the contract snapshots, the wall script. The scripts are Node,
+not bash, so the wall and the scaffold run the same on Linux, macOS and Windows; Node is pinned in `mise.toml`
+beside Java and Maven, and no script here has a dependency to install. `docs/GATES.md` maps
 each gate to the directive it implements and lists, by name, what no gate here reaches.
 
 ## Use it as a project's backend
@@ -17,15 +19,18 @@ service; it is vendored into `backend/` and lifts the project-level files (root 
 one level up:
 
 ```bash
-mkdir some_service_1 && cd some_service_1 && git init -b main
+mkdir some_service_1 && cd some_service_1 && git init -b main && git commit --allow-empty -m "init: empty root"   # subtree add needs a HEAD
 git subtree add --prefix backend https://github.com/dulguun0225/java-backend-template.git main --squash
 cd backend
-scripts/init.sh --package com.acme.someservice1 --name some_service_1   # rename + lift project-root/ to ..
+node scripts/init.mjs --package com.acme.someservice1 --name some_service_1   # rename + lift project-root/ to ..
 mvn -Pcodegen generate-sources && mvn verify                           # regenerate jOOQ under the new package; the wall
 cd .. && git add -A && git commit -m "init: some_service_1 from java-backend-template"
 gh repo create acme/some_service_1 --private --source=. --push
-scripts/apply-ruleset.sh                                                # PR + backend + frontend checks required on main
+node scripts/apply-ruleset.mjs                                              # PR + backend + frontend checks required on main
 ```
+
+The `java-backend-rules` skill ships this sequence as one command, `scripts/new-backend.mjs`, pinned to a
+recorded commit of this template; prefer it over retyping the lines above.
 
 `git subtree` keeps the template's history, so `git subtree pull --prefix backend … main --squash` can bring
 later gate changes in; expect to resolve the package rename when it does. Then install the skills for the
@@ -35,10 +40,10 @@ pre-filled `.specify/memory/constitution.md` survives it.
 ## Use it standalone
 
 `gh repo create acme/some_service_1 --template dulguun0225/java-backend-template --clone`, then
-`scripts/init.sh` as above; in a repository root it renames and does nothing else, and the template's own
+`scripts/init.mjs` as above; in a repository root it renames and does nothing else, and the template's own
 `.github/workflows/ci.yml` is the service's CI.
 
-Toolchain: `mise install` reads `mise.toml` (Java 25, Maven 3.9). Docker is needed for the wall.
+Toolchain: `mise install` reads `mise.toml` (Java 25, Maven 3.9, Node 24, osv-scanner). Docker is needed for the wall.
 
 ## What is in the box
 
@@ -51,9 +56,9 @@ Toolchain: `mise install` reads `mise.toml` (Java 25, Maven 3.9). Docker is need
 | `src/test/java/` | Every architecture, contract, convention and integration test; `...fixtures/` holds one violating fixture per ban rule |
 | `openapi/v1.json` | The committed, normalized contract the build diffs; a frontend's generated client types come from it |
 | `codegen/` | The jOOQ codegen runner, launched as a Java source-file program so it needs nothing compiled first |
-| `scripts/wall.sh` | The whole wall as one command; the template's CI and a project's `backend` job both run it |
-| `scripts/` | The wall's parts: forbidden flags, squawk, codegen drift, osv-scanner; and `init.sh` |
-| `project-root/` | What a project needs at its root: `.github/workflows/ci.yml` (backend + frontend jobs), `.github/rulesets/main.json`, `compose.yaml`, `frontend/README.md`, `.specify/memory/constitution.md`, `CLAUDE.md`, `scripts/` (ruleset, pins, required-checks, frontend gate). `init.sh` lifts it when vendored |
+| `scripts/wall.mjs` | The whole wall as one command; the template's CI and a project's `backend` job both run it |
+| `scripts/` | The wall's parts: forbidden flags, squawk, codegen drift, osv-scanner; `init.mjs`; and `_lib.mjs`, the helpers they share. Node, standard library only |
+| `project-root/` | What a project needs at its root: `.github/workflows/ci.yml` (backend + frontend jobs), `.github/rulesets/main.json`, `compose.yaml`, `frontend/README.md`, `.specify/memory/constitution.md`, `CLAUDE.md`, `scripts/` (ruleset, pins, required-checks, frontend gate). `init.mjs` lifts it when vendored |
 | `docs/GATES.md` | Gate-to-directive map and the named gaps |
 | `CLAUDE.md` | What the agent reads first in this directory |
 
@@ -79,6 +84,7 @@ snapshot needs a deliberate update and writes the new copy under `target/`. Then
 
 ## Provenance
 
-Pins recorded 2026-09-16: Java 25 LTS, Spring Boot 4.1.1 (newest GA line), Tomcat overridden to 11.0.26 for
+Pins recorded 2026-09-16: Java 25 LTS on BellSoft Liberica (the JDK Spring recommends; `mise.toml`, `ci.yml` and the
+Dockerfile name the same vendor), Spring Boot 4.1.1 (newest GA line), Tomcat overridden to 11.0.26 for
 three advisories the Boot BOM had not caught up with. The wiring was lifted from a production repo on the
 same stack and reduced to what the skills require; every gate was run green here before the first commit.

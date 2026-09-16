@@ -3,7 +3,7 @@
 The repo's micro-frontend. **Not started.** This directory exists so the repo shape is decided once, and
 so the `frontend` CI job (required on `main`) has something honest to say: today it reports that nothing
 gates the frontend, and it starts demanding a `check` script the moment `package.json` appears
-(`scripts/frontend-gate.sh`).
+(`scripts/frontend-gate.mjs`).
 
 ## Decided, 2026-09-16
 

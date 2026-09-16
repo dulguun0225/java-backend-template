@@ -1,6 +1,7 @@
-# The template's own wall: this repository *is* the backend, so the job runs scripts/wall.sh at the root. A
+# The template's own wall: this repository *is* the backend, so the job runs scripts/wall.mjs at the root. A
 # project that vendors the template into backend/ runs the same script from project-root/.github/workflows/ci.yml
-# with working-directory: backend. Every action is pinned to a commit SHA.
+# with working-directory: backend. Every action is pinned to a commit SHA. The toolchain (Java, Maven, Node,
+# osv-scanner) is whatever mise.toml pins, installed by mise here exactly as on a developer machine.
 name: ci
 
 on:
@@ -24,15 +25,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          distribution: temurin
-          java-version: "25"
-          cache: maven
+          version: 2026.9.7
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: maven-${{ runner.os }}-
       - name: Actions are SHA-pinned (template's own workflow and the project-root one it ships)
-        run: project-root/scripts/check-action-pins.sh . && project-root/scripts/check-action-pins.sh project-root
+        run: node project-root/scripts/check-action-pins.mjs . && node project-root/scripts/check-action-pins.mjs project-root
       - name: Backend wall
-        run: scripts/wall.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+        run: node scripts/wall.mjs "${{ github.event.pull_request.base.sha || github.event.before }}"
       - name: Keep the verdict artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
