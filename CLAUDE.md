@@ -15,7 +15,7 @@ They exist, they are green, and `mvn verify` here is the definition of done.
 - Errors are RFC 9457 problems whose `code` comes from a `*ErrorCode` enum; the edge is `ApiExceptionHandler`.
 - Money is the `Money` value object; every rounding names its `RoundingMode` through `RoundingPolicy`.
 - Ids are UUIDv7 via `Ids.newId()`; time comes from the injected `Clock`; logging goes through `Log`.
-- One Maven module. The `platform` package is the foundation (no HTTP, depends on no feature); one feature = one package beside it, shaped like `greeting`. Copy its shape, then delete `greeting`.
+- One Maven module. The `platform` package is the foundation (no HTTP, depends on no feature); one feature = one package beside it, shaped like `greeting`. Copy its shape, then delete `greeting` and name the new package in this bullet: this line is the pointer the constitution's Article VI refers to, so the constitution itself never names a package.
 - API-only. A frontend, if the project has one, is a separate static deploy and consumes `openapi/v1.json`.
 
 ## Skills
