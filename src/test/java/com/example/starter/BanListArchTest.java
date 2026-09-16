@@ -33,7 +33,7 @@ import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 
 /**
- * The ban list, enforced at the bytecode level over the main code of both modules. Tests are excluded: they
+ * The ban list, enforced at the bytecode level over the main code. Tests are excluded: they
  * legitimately use {@code @Autowired} fields and wall-clock time.
  *
  * <p>Every rule is a {@code static final ArchRule} field with one {@code @Test} method that checks it. Two
@@ -311,7 +311,7 @@ class BanListArchTest {
     }
 
     @Test
-    void importsBothModulesMainCode() {
+    void importsMainCode() {
         assertThat(MAIN.size()).isGreaterThanOrEqualTo(10);
         assertThat(MAIN.stream().map(JavaClass::getName))
                 .contains(BASE + ".platform.Money", BASE + ".platform.Tx", BASE + ".Application");

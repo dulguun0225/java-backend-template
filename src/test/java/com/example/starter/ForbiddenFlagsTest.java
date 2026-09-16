@@ -8,7 +8,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -28,21 +27,19 @@ class ForbiddenFlagsTest {
 
     @Test
     void noAgentOrPreviewFlagInBuildOrDeployFiles() throws IOException {
-        Path root = Path.of("").toAbsolutePath().resolve("..").normalize();
+        Path root = Path.of("").toAbsolutePath();
 
         List<Path> files = new ArrayList<>();
         addIfExists(files, root.resolve("Dockerfile"));
         addIfExists(files, root.resolve("compose.yaml"));
         addIfExists(files, root.resolve(".mvn/jvm.config"));
-        try (Stream<Path> walk = Files.walk(root, 2)) {
-            walk.filter(p -> p.getFileName().toString().equals("pom.xml")).forEach(files::add);
-        }
+        addIfExists(files, root.resolve("pom.xml"));
         assertThat(files)
                 .as("the scan found too few files; check the Dockerfile, compose, jvm.config and pom locations")
                 .anyMatch(p -> p.getFileName().toString().equals("Dockerfile"))
                 .anyMatch(p -> p.getFileName().toString().equals("compose.yaml"))
                 .anyMatch(p -> p.getFileName().toString().equals("jvm.config"))
-                .hasSizeGreaterThanOrEqualTo(6);
+                .hasSizeGreaterThanOrEqualTo(4);
 
         for (Path file : files) {
             String content = Files.readString(file, StandardCharsets.UTF_8);

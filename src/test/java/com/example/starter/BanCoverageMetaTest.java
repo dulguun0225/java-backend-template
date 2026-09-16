@@ -29,7 +29,7 @@ class BanCoverageMetaTest {
     record BanGate(Tier tier, String ref) {}
 
     /** Test methods in {@link BanListArchTest} that are guards, not ban rules. */
-    private static final Set<String> NON_BAN_TESTS = Set.of("importsBothModulesMainCode");
+    private static final Set<String> NON_BAN_TESTS = Set.of("importsMainCode");
 
     private static final Map<Ban, BanGate> GATES = new EnumMap<>(Ban.class);
 

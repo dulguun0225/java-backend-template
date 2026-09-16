@@ -26,23 +26,22 @@ files=$(git ls-files | grep -v '^scripts/init.sh$')
 sed -i "s/${old_pkg//./\\.}/${pkg}/g" $files
 sed -i "s#${old_path}#${new_path}#g" $files
 sed -i "s#<groupId>${old_group//./\\.}</groupId>#<groupId>${group}</groupId>#g; s#<exclude>${old_group//./\\.}:\*</exclude>#<exclude>${group}:*</exclude>#g; s#<ignore>${old_group//./\\.}:\*</ignore>#<ignore>${group}:*</ignore>#g" $files
-# 2. artifact and module names; the spring-boot-starter-* artifacts share the word and are excluded by anchoring
-sed -i -E "s/\b${old_name}-(parent|platform|app)\b/${name}-\1/g; s/^(name|  name): ${old_name}$/\1: ${name}/; s/POSTGRES_(DB|USER|PASSWORD): ${old_name}$/POSTGRES_\1: ${name}/; s#-U ${old_name} -d ${old_name}#-U ${name} -d ${name}#; s#postgresql://postgres:5432/${old_name}#postgresql://postgres:5432/${name}#; s/(USERNAME|PASSWORD): ${old_name}$/\1: ${name}/; s/image: ${old_name}-app:dev/image: ${name}-app:dev/" $files
+# 2. artifact and image names; the spring-boot-starter-* artifacts share the word and are excluded by anchoring
+sed -i -E "s#<artifactId>${old_name}</artifactId>#<artifactId>${name}</artifactId>#; s#<name>${old_name}</name>#<name>${name}</name>#; s/^(\s*name): ${old_name}$/\1: ${name}/; s/\"title\" : \"${old_name}\"/\"title\" : \"${name}\"/; s/POSTGRES_(DB|USER|PASSWORD): ${old_name}$/POSTGRES_\1: ${name}/; s#-U ${old_name} -d ${old_name}#-U ${name} -d ${name}#; s#postgresql://postgres:5432/${old_name}#postgresql://postgres:5432/${name}#; s/(USERNAME|PASSWORD): ${old_name}$/\1: ${name}/; s/image: ${old_name}:dev/image: ${name}:dev/; s#target/${old_name}-\*\.jar#target/${name}-*.jar#; s/title\(\"${old_name}\"\)/title(\"${name}\")/" $files
 # 3. directories: the base package tree and its test-only siblings (starterfixtures, startertest), which share the
 #    leaf name so a rename of the package prefix renames them too
 old_parent=$(dirname "$old_path"); old_leaf=$(basename "$old_path")
 new_parent=$(dirname "$new_path"); new_leaf=$(basename "$new_path")
-for module in platform app; do
-  for src in main test; do
-    for d in "${old_name}-${module}/src/${src}/java/${old_parent}/${old_leaf}"*; do
-      [[ -d "$d" ]] || continue
-      suffix="${d##*/${old_leaf}}"
-      t="${old_name}-${module}/src/${src}/java/${new_parent}/${new_leaf}${suffix}"
-      mkdir -p "$(dirname "$t")"; git mv "$d" "$t"
-    done
+# prose that names the test-only sibling packages by their leaf (docs, CLAUDE.md)
+sed -i -E "s/\b${old_leaf}(fixtures|test)\b/${new_leaf}\1/g" $files
+for src in main test; do
+  for d in "src/${src}/java/${old_parent}/${old_leaf}"*; do
+    [[ -d "$d" ]] || continue
+    suffix="${d##*/${old_leaf}}"
+    t="src/${src}/java/${new_parent}/${new_leaf}${suffix}"
+    mkdir -p "$(dirname "$t")"; git mv "$d" "$t"
   done
-  git mv "${old_name}-${module}" "${name}-${module}"
 done
 find . -type d -empty -not -path './.git/*' -delete
-echo "renamed: package ${pkg}, group ${group}, artifacts ${name}-platform / ${name}-app"
-echo "next: mvn -Pcodegen -pl ${name}-platform process-test-classes && mvn verify, then commit"
+echo "renamed: package ${pkg}, group ${group}, artifact ${name}"
+echo "next: mvn -Pcodegen generate-sources && mvn verify, then commit"
