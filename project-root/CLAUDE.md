@@ -17,5 +17,9 @@ One repo, one service, one micro-frontend.
   re-planned. `/speckit.plan` reads it and must not re-plan the stack or the gates; a plan's Technical
   Context inherits them.
 - `compose.yaml` runs PostgreSQL and the service locally: `docker compose up --build`.
+- `.claude/settings.json` pins `worktree.baseRef: head`: an agent run in an isolated worktree starts from the
+  branch you are on, not from `main`. Feature work lives on `feature/<NNN>-<name>` ahead of `main`, so a
+  worktree cut from `main` lacks the files earlier tasks created and the agent silently works on the wrong tree.
+  `.claude/worktrees/` is ignored; those worktrees are merged and removed, never committed.
 
 Install the skills once per machine: `npx skills add dulguun0225/skills -a claude-code -y`.
