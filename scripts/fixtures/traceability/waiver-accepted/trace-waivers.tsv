@@ -1,0 +1,2 @@
+001/FR-002	deferred	the notification half is not built here; specs/001-alpha/plan.md puts it outside this scope
+001/SC-001	external	measured against the production deployment, which no test here can stand in for

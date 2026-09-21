@@ -32,8 +32,36 @@ gate here disagree, the gate is wrong or stale: fix the gate, do not bypass it.
 
 ## Working here
 
-- `node scripts/wall.mjs` is exactly what CI runs: forbidden flags, squawk, `mvn verify`, the jOOQ regenerate-twice drift check, the OpenAPI rerun under another timezone, the vacuum ruleset over the committed document, the vulnerability scan. Docker required. Scripts are Node, standard library only; `mise install` gives the pinned Node.
+- `node scripts/wall.mjs` is exactly what CI runs: forbidden flags, squawk, the traceability gate's canary and then the traceability gate itself (that order: a gate that cannot fail proves nothing), `mvn verify`, the jOOQ regenerate-twice drift check, the OpenAPI rerun under another timezone, the vacuum ruleset over the committed document, the vulnerability scan. Docker required. Scripts are Node, standard library only; `mise install` gives the pinned Node.
 - `mvn spotless:apply` formats. `mvn -Pcodegen generate-sources` regenerates jOOQ after a migration; it runs before compile, so it works while main code still references a table that does not exist yet.
+- A requirement citation written anywhere outside its own `specs/<NNN>-<name>/` directory — code, test, migration
+  comment, `docs/GATES.md` — is qualified: `NNN/FR-nnn` / `NNN/SC-nnn`, where `NNN` is the feature directory's
+  numeric prefix. Ids collide across features, so a bare `FR-nnn` names one requirement per feature and none of
+  them. Inside a feature's own `specs/<NNN>-<name>/` a bare id is legal and means that feature's own, so it has
+  to be one that feature's `spec.md` defines; a reference to another feature's id is qualified there too, and
+  the spaced form (`NNN` and a space where the slash belongs) is not a citation anywhere. A requirement of the
+  **source document** a feature was specified from is a third thing again — the upstream numbers its own
+  requirements in this exact spelling, so its id and the feature's id of that number are two requirements with
+  one name. It is never written bare, the feature's own spec directory included: it is `<QUALIFIER>/FR-nnn`,
+  and the qualifier is a row in `specs/trace-upstreams.tsv` (`QUALIFIER<TAB>location`, sorted; the grammar is
+  an uppercase letter then uppercase letters, digits and hyphens, so no qualifier can ever be read as a
+  feature's three digits). The gate accepts it on the qualifier alone — it never resolves it, because the
+  upstream repository is not checked out in CI — and it counts as coverage of nothing. A declared qualifier
+  nothing cites fails as a stale row. `node scripts/check-traceability.mjs` reads that rule and the coverage
+  behind it; `--report` prints the matrix. Every requirement of a feature whose `tasks.md` has no open box is
+  cited from a file under `src/test/` or carries a row in `specs/trace-waivers.tsv`, which is three columns —
+  `NNN/ID<TAB>kind<TAB>reason` — and the kind is exactly one of two. `external`: the criterion cannot be
+  witnessed from inside this repository at all (a consumer service's behaviour, caller topology, a production
+  baseline, an organisational outcome). `deferred`: the requirement is specified and deliberately not built
+  yet, and the reason names where that deferral is recorded — a named-gap row in `docs/GATES.md`, a scope
+  boundary in the feature's `plan.md`, the owning capability — so a reader can go and check it. There is no
+  third kind, and a requirement that is merely untested is neither of them: it gets a test. `--report` ends
+  with the `deferred` ids as a list of their own, which is this repo's list of specified-but-unbuilt
+  requirements, and with the declared upstream documents and what still cites them. The template ships none of
+  the three lists `specs/` holds — `trace-waivers.tsv`, `trace-legacy-files.tsv`, `trace-upstreams.tsv` — and
+  no `specs/` tree either: each list is optional to the gate, and the first feature that needs a row creates
+  it. The gate runs regardless, with zero defined ids, and a bare id still fails. It is a step in
+  `scripts/wall.mjs`; `docs/GATES.md` carries the caveats it cannot reach.
 - A new wire error code goes in a catalog enum and in `ErrorCatalogSnapshotTest`'s list; the build tells you when the snapshot needs updating.
 - A new table needs an owner row in `TableOwnershipTest.OWNERS`; the build fails until it has one.
 - A new endpoint changes `openapi/v1.json`; the build writes the actual document to `target/` and tells you to review and copy it.

@@ -18,6 +18,14 @@ main(() => {
   step('Migration lint (squawk)');
   script('squawk-changed-migrations.mjs', base);
 
+  // The canary runs first, and the gate it proves runs straight after: a gate that cannot fail proves
+  // nothing, so the order here is the argument for believing the next step's verdict.
+  step('Traceability gate canary: check-traceability.mjs catches every failure class it claims, on fixtures');
+  script('check-traceability.selftest.mjs');
+
+  step('Spec<->code traceability: no bare requirement id, every citation resolves, every requirement of a complete feature claimed or waived');
+  script('check-traceability.mjs');
+
   step('Build wall: compile wall, formatter, architecture tests, unit and integration tests, coverage, licence gate');
   run('mvn', ['-B', '-ntp', 'verify']);
 

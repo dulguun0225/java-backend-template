@@ -7,6 +7,14 @@ One repo, one service, one micro-frontend.
 - `frontend/` is the micro-frontend, a separate static deploy. Not started; `frontend/README.md` records the
   decisions taken and the gates to wire, and the `frontend` CI job refuses frontend code that has no `check` script.
 - The contract between them is `backend/openapi/v1.json`.
+- `node backend/scripts/check-traceability.mjs` is the spec↔code gate and a step in the wall: it refuses a bare
+  requirement id, resolves every `NNN/FR-nnn` against `specs/<NNN>-<name>/spec.md`, and holds every id of a
+  feature whose `tasks.md` is closed to a test citation. Three lists under `specs/` feed it —
+  `trace-waivers.tsv` (an id no test claims, `external` or `deferred`, with a reason), `trace-legacy-files.tsv`
+  (files whose bare ids can never move, a shipped migration above all) and `trace-upstreams.tsv` (the source
+  documents each feature was specified from, whose own ids are cited as `<QUALIFIER>/FR-nnn`). None of the
+  three is shipped and none is required: the first feature that needs a row is what creates the file.
+  `--report` prints the coverage matrix, the deferred ids and the upstream documents.
 - `.github/workflows/ci.yml` has two jobs, `backend` and `frontend`, both required on `main` by
   `.github/rulesets/main.json` (`node scripts/apply-ruleset.mjs` applies it). Nothing is advisory.
 - `.gitlab-ci.yml` mirrors those two jobs for a GitLab remote (a docker-executor runner with `privileged = true`
