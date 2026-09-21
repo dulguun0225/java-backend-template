@@ -7,18 +7,20 @@ One repo, one service, one micro-frontend.
 - `frontend/` is the micro-frontend, a separate static deploy. Not started; `frontend/README.md` records the
   decisions taken and the gates to wire, and the `frontend` CI job refuses frontend code that has no `check` script.
 - The contract between them is `backend/openapi/v1.json`.
+- A feature's `spec.md` is written here and owned here: a domain expert writes `specs/<NNN>-<name>/spec.md`
+  with stock spec-kit (`/speckit-specify`, `/speckit-clarify`), build work picks up at `/speckit-plan`, and no
+  later stage edits `spec.md`. Nothing is derived from a document in another repository.
 - `node backend/scripts/check-traceability.mjs` is the spec↔code gate and a step in the wall: it refuses a bare
   requirement id, resolves every `NNN/FR-nnn` against `specs/<NNN>-<name>/spec.md`, and holds every id of a
   feature whose `tasks.md` is closed to a test citation and every id of a feature that has a `tasks.md` to a
-  task naming it. Four lists under `specs/` feed it — `trace-waivers.tsv` (an id no test claims, `external` or
-  `deferred`, with a reason), `trace-legacy-files.tsv` (files whose bare ids can never move, a shipped
-  migration above all), `trace-upstreams.tsv` (the source documents each feature was specified from, whose own
-  ids are cited as `<QUALIFIER>/FR-nnn`; each row pins a committed copy of its document at
-  `specs/upstream/<QUALIFIER>.md` by the source commit and the snapshot's blob sha, re-taken only by
-  `node backend/scripts/refresh-upstream-snapshot.mjs`) and `trace-upstream-dropped.tsv` (an upstream
-  requirement this service does not take, `dropped` or `deferred`, with the committed decision named). None of
-  the four is shipped and none is required: the first feature that needs a row is what creates the file.
-  `--report` prints the coverage matrix, the deferred ids and the upstream documents with their pins.
+  task naming it. Two lists under `specs/` feed it — `trace-waivers.tsv` (an id no test claims, `external` or
+  `deferred`, with a reason) and `trace-legacy-files.tsv` (files whose bare ids can never move, a shipped
+  migration above all). A token qualified by something that is not a feature prefix — `CAP-NC02-04/FR-034a` —
+  names another document's requirement and is **prose**: it resolves nothing, covers nothing and is not a bare
+  id. The gate recognises the shape only so that it can drop it, which is what keeps it from being read as the
+  bare id it wraps and resolving against the local requirement of that number. Neither list is shipped and
+  neither is required: the first feature that needs a row is what creates the file. `--report` prints the
+  coverage matrix, the spec→tasks gap and the deferred ids.
 - `.github/workflows/ci.yml` has two jobs, `backend` and `frontend`, both required on `main` by
   `.github/rulesets/main.json` (`node scripts/apply-ruleset.mjs` applies it). Nothing is advisory.
 - `.gitlab-ci.yml` mirrors those two jobs for a GitLab remote (a docker-executor runner with `privileged = true`

@@ -26,7 +26,7 @@ const FIXTURES = path.join(here, 'fixtures', 'traceability');
 const fr = (n) => `FR-${n}`;
 const sc = (n) => `SC-${n}`;
 const q = (feature, id) => `${feature}/${id}`;
-// The two upstream qualifiers the fixtures declare. Both end in digits on purpose: `CAP-NC02-04` ends in the
+// The two foreign qualifiers the fixtures write. Both end in digits on purpose: `CAP-NC02-04` ends in the
 // two that would read as a feature if the tail rather than the whole run were taken, and `DOC-001` ends in
 // exactly the three digits a feature qualifier is spelled with.
 const CAP = 'CAP-NC02-04';
@@ -68,41 +68,10 @@ const CASES = [
     what: 'the report marks each waiver with its kind and lists the deferred ids on their own at the end',
   },
   {
-    dir: 'upstream-accepted',
+    dir: 'foreign-accepted',
     pass: true,
     contains: ['traceability green'],
-    what: `a declared upstream qualifier is accepted inside a feature directory and in a scan root, and the tail of ${CAP} is not read as the feature 04`,
-  },
-  {
-    dir: 'upstream-accepted',
-    args: ['--report'],
-    pass: true,
-    contains: [
-      `${CAP} -> netos-spec:specs/nc-02/04-product-gl-config/spec.md`,
-      '2 citation(s) from: 001-alpha',
-      `${DOC} -> netos-spec:specs/nc-02/04-product-gl-config/checklists/requirements.md`,
-      'Upstream.java',
-      '2 requirement(s): 2 cited, 0 dropped, 0 deferred, 0 unaccounted',
-    ],
-    what: 'the report gives each declared qualifier its location, its citation count, the feature directories citing it and its accounting',
-  },
-  {
-    dir: 'dropped-accepted',
-    pass: true,
-    contains: ['traceability green'],
-    what: 'an upstream requirement this repo does not take is accounted for by a dropped row, in both its kinds',
-  },
-  {
-    dir: 'dropped-accepted',
-    args: ['--report'],
-    pass: true,
-    contains: [
-      '3 requirement(s): 1 cited, 1 dropped, 1 deferred, 0 unaccounted',
-      `dropped: ${fr('034a')}`,
-      `deferred: ${sc('001')}`,
-      `  ${CAP}/${sc('001')}: a later feature here takes it`,
-    ],
-    what: 'the report counts the accounting per qualifier and lists the deferred upstream id with the waived ones at the end',
+    what: `a foreign-qualified token is prose both inside a feature directory (${CAP}/...) and in a file inside none (${DOC}/...): neither refused as bare nor resolved, and the tail of ${DOC} is not read as the feature 001`,
   },
   { dir: 'tasks-waived', pass: true, contains: ['traceability green'], what: 'a requirement no task names is closed by a waiver' },
   {
@@ -113,68 +82,6 @@ const CASES = [
     what: 'the report prints the spec -> tasks gap per feature',
   },
 
-  // --- the gate says no, on the upstream form ---------------------------------------------------------
-  {
-    dir: 'upstream-citation-dangling',
-    pass: false,
-    contains: [`${CAP}/${fr('999')} is not defined in`, `upstream/${CAP}.md`],
-    what: 'an upstream citation naming an id the qualifier\'s snapshot does not define',
-  },
-  {
-    dir: 'upstream-unaccounted',
-    pass: false,
-    contains: [`${CAP}/${fr('034a')}: defined at`, 'carrying no row in trace-upstream-dropped.tsv'],
-    what: 'an upstream requirement nothing cites and no dropped row carries',
-  },
-  {
-    dir: 'upstream-snapshot-missing',
-    pass: false,
-    contains: [`${CAP} has no snapshot at`, 'refresh-upstream-snapshot.mjs'],
-    what: 'a declared upstream whose document is not committed here',
-  },
-  {
-    dir: 'upstream-snapshot-edited',
-    pass: false,
-    contains: ['hashes to', 'is never edited here'],
-    what: 'a snapshot edited by hand instead of re-taken, caught on its blob sha',
-  },
-  {
-    dir: 'upstream-snapshot-bad-sha',
-    pass: false,
-    contains: [`${CAP} carries the snapshot sha "-"`, 'expected a full 40-character git blob sha'],
-    what: 'a snapshot sha column that is not a blob sha at all',
-  },
-  {
-    dir: 'upstream-bad-source-sha',
-    pass: false,
-    contains: [`${CAP} carries the source revision "a1b2c3d"`, 'expected a full 40-character commit sha'],
-    what: 'an abbreviated source revision, which names more than one revision',
-  },
-  {
-    dir: 'upstream-bad-feature',
-    pass: false,
-    contains: [`${CAP} names the feature "alpha"`, 'expected a three-digit feature prefix'],
-    what: 'an upstream row whose feature column is not a feature prefix',
-  },
-  {
-    dir: 'dropped-stale',
-    pass: false,
-    contains: [`${CAP}/${fr('002')} is listed here but is cited from`, 'the row is stale and goes'],
-    what: 'a dropped row for an upstream id the feature does cite',
-  },
-  {
-    dir: 'dropped-dangling',
-    pass: false,
-    contains: [`${CAP}/${fr('999')} is defined in no`, 'the row is stale and goes'],
-    what: 'a dropped row for an id the snapshot does not define',
-  },
-  {
-    dir: 'dropped-unknown-kind',
-    pass: false,
-    contains: [`${CAP}/${fr('034a')} carries the kind "someday"`, 'dropped or deferred'],
-    what: 'a dropped-row kind outside the two accepted ones',
-  },
-
   // --- the gate says no, on spec -> tasks --------------------------------------------------------------
   {
     dir: 'tasks-missing-id',
@@ -182,34 +89,18 @@ const CASES = [
     contains: [`${q('001', fr('002'))}: defined at`, 'named by no task in'],
     what: 'a requirement no task in its own feature names, and no waiver covers',
   },
+  {
+    dir: 'foreign-not-tasks',
+    pass: false,
+    contains: [`${q('001', fr('002'))}: defined at`, 'named by no task in'],
+    what: `a task naming a local id only through a foreign-qualified token (${CAP}/...) plans nothing: the local id of that number is still unplanned`,
+  },
 
   {
-    dir: 'upstream-not-coverage',
+    dir: 'foreign-not-coverage',
     pass: false,
     contains: [`${q('001', fr('002'))}: defined at`, 'no file under a test root'],
-    what: 'an upstream citation from a test covers nothing: the local id of the same number is still uncovered',
-  },
-  {
-    dir: 'upstream-undeclared',
-    pass: false,
-    contains: [`${CAP}/${fr('034a')} names the qualifier ${CAP}`, 'plan.md'],
-    what: 'an upstream citation whose qualifier no row declares',
-  },
-  {
-    dir: 'upstream-bad-qualifier',
-    pass: false,
-    contains: ['4CAP is not a qualifier'],
-    what: 'a declared qualifier that breaks the grammar, so it could be read as a feature prefix',
-  },
-  { dir: 'upstream-stale', pass: false, contains: [`${CAP} is cited nowhere`], what: 'a declared qualifier nothing cites' },
-  { dir: 'upstream-unsorted', pass: false, contains: [`${CAP} sorts before ${DOC}`], what: 'upstream rows out of order' },
-  { dir: 'upstream-duplicate', pass: false, contains: [`${CAP} is listed twice`], what: 'a duplicated upstream row' },
-  { dir: 'upstream-no-location', pass: false, contains: [`${CAP} carries no location`], what: 'an upstream row naming no document' },
-  {
-    dir: 'upstream-malformed',
-    pass: false,
-    contains: ['expected exactly 5 tab-separated column(s), found 2'],
-    what: 'an upstream row in the retired two-column spelling, which fails on its width rather than being read as a row with no feature and no pin',
+    what: `a foreign-qualified token in a test covers nothing: the local id of the same number is still uncovered`,
   },
 
   // --- the gate says no, on everything else -----------------------------------------------------------
@@ -271,20 +162,12 @@ function runGate(dir, extra = []) {
     '--scan', path.join(root, 'scan'),
     '--test-root', path.join(root, 'scan', 'src', 'test'),
   ];
-  // A fixture supplies a waiver, legacy, upstream or dropped list only when its case is about one; the gate
-  // treats all four as optional. The two upstream lists live *inside* the fixture's specs tree, as they do
-  // in a real repo, so the snapshots the upstream list pins sit at `specs/upstream/` -- inside the tree the
-  // gate walks for citations. Every passing upstream fixture therefore also proves that the snapshots are
-  // skipped there: their requirement ids are written bare, as the other repository writes them, and a gate
-  // that read them would report every one as a bare citation.
+  // A fixture supplies a waiver or a legacy list only when its case is about one; the gate treats both as
+  // optional.
   const waivers = path.join(root, 'trace-waivers.tsv');
   const legacy = path.join(root, 'trace-legacy-files.tsv');
-  const upstreams = path.join(root, 'specs', 'trace-upstreams.tsv');
-  const dropped = path.join(root, 'specs', 'trace-upstream-dropped.tsv');
   if (fs.existsSync(waivers)) args.push('--waivers', waivers);
   if (fs.existsSync(legacy)) args.push('--legacy', legacy);
-  if (fs.existsSync(upstreams)) args.push('--upstreams', upstreams);
-  if (fs.existsSync(dropped)) args.push('--dropped', dropped);
   const r = spawnSync(process.execPath, [...args, ...extra], { encoding: 'utf8' });
   if (r.error) throw r.error;
   return { status: r.status ?? 1, output: `${r.stdout}${r.stderr}` };
