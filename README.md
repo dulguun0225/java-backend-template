@@ -66,7 +66,7 @@ Toolchain: `mise install` reads `mise.toml` (Java 25, Maven 3.9, Node 24, osv-sc
 | `codegen/` | The jOOQ codegen runner, launched as a Java source-file program so it needs nothing compiled first |
 | `rulesets/openapi.yaml` | The five vacuum lints the committed document passes; `scripts/vacuum-openapi.mjs` runs them |
 | `scripts/wall.mjs` | The whole wall as one command; the template's CI and a project's `backend` job both run it |
-| `scripts/` | The wall's parts: forbidden flags, squawk, the spec↔code traceability gate and the canary that proves it, codegen drift, osv-scanner; `init.mjs`; and `_lib.mjs`, the helpers they share. Node, standard library only |
+| `scripts/` | The wall's parts: forbidden flags, squawk, the spec↔code traceability gate and the canary that proves it, codegen drift, osv-scanner; `refresh-upstream-snapshot.mjs`, which re-takes a pinned copy of a source document from a checkout of the repository that owns it; `init.mjs`; and `_lib.mjs`, the helpers they share. Node, standard library only |
 | `scripts/fixtures/traceability/` | The traceability canary's fixture trees, one per failure class the gate claims and one per accepted shape. Deliberately full of the defects the gate catches, so the default scan skips them |
 | `project-root/` | What a project needs at its root: `.github/workflows/ci.yml` (backend + frontend jobs), `.github/rulesets/main.json`, `compose.yaml`, `frontend/README.md`, `.specify/memory/constitution.md`, `CLAUDE.md`, `scripts/` (ruleset, pins, required-checks, frontend gate). `init.mjs` lifts it when vendored |
 | `docs/GATES.md` | Gate-to-directive map and the named gaps |
@@ -79,7 +79,10 @@ pin, no dynamic versions, jqwik ceiling, banned dependencies). Spotless. An exec
 coverage meta-test and a negative-control fixture per rule. Layering. Migration conventions with negative
 fixtures, plus squawk. Spec↔code traceability: no bare requirement id anywhere, every `NNN/FR-nnn` citation
 resolving against `specs/`, every id of a finished feature cited from a test or waived with a kind and a
-reason — run straight after a canary that proves the gate still catches every failure class it claims. jOOQ
+reason, every id of a feature that has a `tasks.md` named by a task there, and every `<QUALIFIER>/FR-nnn`
+citation of a source document resolving against a committed, pinned copy of it whose every requirement is
+cited here or carried by a dropped row — run straight after a canary that proves the gate still catches every
+failure class it claims. jOOQ
 regenerated twice from the migrations and diffed. Error catalog snapshot.
 OpenAPI document normalized and snapshotted, rerun under another timezone, and linted by vacuum against a committed ruleset. Error edge tests: every error
 coded, the 500 leaks nothing and its incident id resolves to one log event. Property tests on `Money`.

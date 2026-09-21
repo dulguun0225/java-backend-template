@@ -1,3 +1,3 @@
 # Plan
 
-Alpha reads CAP-NC02-04/FR-034a and DOC-001/FR-002 from the source documents.
+Alpha reads DOC-001/FR-002 and CAP-NC02-04/FR-002.
