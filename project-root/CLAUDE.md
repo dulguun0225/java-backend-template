@@ -26,9 +26,10 @@ One repo, one service, one micro-frontend.
 - `.gitlab-ci.yml` mirrors those two jobs for a GitLab remote (a docker-executor runner with `privileged = true`
   for docker:dind). Whichever forge this repo is not on, its file stays: both are deploy files
   `check-forbidden-flags.mjs` scans, and the ruleset script only means something on GitHub.
-- `.specify/memory/constitution.md` is pre-filled for spec-kit. `/speckit.constitution` amends Article VII
-  only, the project's own decisions; Articles I–VI restate what `backend/` already enforces and are not
-  re-planned. `/speckit.plan` reads it and must not re-plan the stack or the gates; a plan's Technical
+- `.specify/memory/constitution.md` is pre-filled for spec-kit. Articles I–VI restate what `backend/` already
+  enforces and are not re-planned. Article VII is an optional slot that starts empty: nothing reads whether it
+  is filled, nobody is owed a `/speckit.constitution` run, and it is amended by a commit with its reason when
+  a feature's plan produces a rule that binds more than that feature. `/speckit.plan` reads the file and must not re-plan the stack or the gates; a plan's Technical
   Context inherits them.
 - `compose.yaml` runs PostgreSQL and the service locally: `docker compose up --build`.
 - `.claude/settings.json` pins `worktree.baseRef: head`: an agent run in an isolated worktree starts from the

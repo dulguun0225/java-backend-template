@@ -37,11 +37,12 @@ later gate changes in; expect to resolve the package rename when it does. Then i
 agent (`npx skills add dulguun0225/skills -a claude-code -y`) and, for spec-kit, `specify init --here`; the
 pre-filled `.specify/memory/constitution.md` survives it.
 
-**Scaffold before spec-kit's first command.** The order is: this scaffold, `specify init --here`,
-`/speckit.constitution`, `/speckit.specify`, `/speckit.plan`, `/speckit.tasks`, `/speckit.implement`.
-`/speckit.constitution` then amends Article VII, the project's own decisions, and leaves Articles I–VI
-alone: they restate what `mvn verify` already enforces, and `/speckit.plan` inherits them instead of
-re-planning the stack. Run spec-kit first and the constitution it writes is the one that stays: `init.mjs`
+**Scaffold before spec-kit's first command.** The order is: this scaffold, `specify init --here`, then a
+feature: `/speckit.specify`, `/speckit.plan`, `/speckit.tasks`, `/speckit.implement`. Running
+`/speckit.constitution` is not a step. Articles I–VI restate what `mvn verify` already enforces, and
+`/speckit.plan` inherits them instead of re-planning the stack. Article VII is an optional slot that starts
+empty; nothing reads whether it is filled, and it is amended later, as a commit with its reason, when a
+feature's plan produces a rule that binds more than that feature. Run spec-kit first and the constitution it writes is the one that stays: `init.mjs`
 never overwrites, so the platform articles are dropped and the plan will re-decide what the template has
 already decided.
 

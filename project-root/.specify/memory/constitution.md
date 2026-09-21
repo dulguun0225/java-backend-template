@@ -1,9 +1,10 @@
 # Constitution
 
 <!-- Pre-filled by the java-backend-template. spec-kit's `specify init --here` seeds this file only when it is
-     missing, so it survives initialisation. The template is scaffolded before spec-kit's first command;
-     `/speckit.constitution` then amends Article VII, the project-specific articles, and leaves I–VI as they
-     are: they restate what the template already enforces and are not open for re-planning per feature. -->
+     missing, so it survives initialisation. The template is scaffolded before spec-kit's first command.
+     Articles I–VI stay as they are: they restate what the template already enforces and are not open for
+     re-planning per feature. Article VII is optional and starts empty; running `/speckit.constitution` is
+     not a step of starting the project. -->
 
 ## Article I. The platform is decided
 
