@@ -20,7 +20,17 @@ main(() => {
   if (files.length === 0) throw new Fail('no build or deploy files found to scan');
   let found = false;
   for (const file of files) {
-    lines(fs.readFileSync(file, 'utf8')).forEach((line, i) => {
+    // `git ls-files` lists the index, so a tracked file deleted from the working tree is listed and is not
+    // there; it carries no flags to find, so it is skipped. Any other read error is a gate error naming the
+    // file, never a stack trace -- a file that is there and unreadable is a verdict this gate cannot reach.
+    let text;
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch (e) {
+      if (e.code === 'ENOENT' || e.code === 'EISDIR' || e.code === 'ENOTDIR') continue;
+      throw new Fail(`cannot read ${file}: ${e.code ?? e.message}`);
+    }
+    lines(text).forEach((line, i) => {
       if (tokens.test(line)) {
         console.log(`${file}:${i + 1}:${line}`);
         found = true;
