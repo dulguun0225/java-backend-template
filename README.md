@@ -23,7 +23,7 @@ mkdir some_service_1 && cd some_service_1 && git init -b main && git commit --al
 git subtree add --prefix backend https://github.com/dulguun0225/java-backend-template.git main --squash
 cd backend
 node scripts/init.mjs --package com.acme.someservice1 --name some_service_1   # rename + lift project-root/ to ..
-mvn -Pcodegen generate-sources && mvn verify                           # regenerate jOOQ under the new package; the wall
+mvn -Pcodegen generate-sources && mvn spotless:apply && mvn verify     # regenerate jOOQ under the new package; re-format, since the rename moves imports and re-wraps lines; the wall
 cd .. && git add -A && git commit -m "init: some_service_1 from java-backend-template"
 gh repo create acme/some_service_1 --private --source=. --push
 node scripts/apply-ruleset.mjs                                              # PR + backend + frontend checks required on main

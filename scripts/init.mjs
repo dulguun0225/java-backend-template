@@ -141,9 +141,9 @@ main(() => {
     }
     for (const p of ['project-root', '.github', 'renovate.json']) fs.rmSync(p, { recursive: true, force: true });
     console.log(`lifted project-root/ to ${path.dirname(here)}; removed the template's own .github/ and renovate.json from ${path.basename(here)}/`);
-    console.log('next: mvn -Pcodegen generate-sources && mvn verify here; then at the project root: git add -A, commit, node scripts/apply-ruleset.mjs');
+    console.log('next: mvn -Pcodegen generate-sources && mvn spotless:apply && mvn verify here (the rename moves imports and re-wraps lines, so format before the wall); then at the project root: git add -A, commit, node scripts/apply-ruleset.mjs');
   } else {
-    console.log('next: mvn -Pcodegen generate-sources && mvn verify, then commit');
+    console.log('next: mvn -Pcodegen generate-sources && mvn spotless:apply && mvn verify, then commit (the rename moves imports and re-wraps lines, so format before the wall)');
   }
 });
 
