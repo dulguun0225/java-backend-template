@@ -52,9 +52,9 @@ template's sample package is deleted by the first real feature and is never the 
 
 ## Article VII. Project-specific articles
 
-<!-- Add what this product decides that the template does not: domain invariants, the coverage floor and
-     why, the money precision (numeric(19,4) vs (20,4)), the idempotency status code for a same-key
-     different-body replay, tenancy, authentication. Each article names the test or gate that holds it. -->
+None. Empty is a complete state for this section: no command, gate or test reads whether it is filled, and
+nothing is owed here. A project article is added only by amendment, as Governance says, when a rule turns out
+to bind more than one feature and names the test or gate that holds it.
 
 ## Governance
 
