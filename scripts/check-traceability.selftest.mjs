@@ -10,8 +10,11 @@
 // The fixtures live in fixtures/traceability/<case>/ and are excluded from the gate's own default scan by
 // explicit path, because they are deliberately full of the defects it catches. Nothing in this file spells a
 // bare requirement id literally either -- the ids are assembled from parts, so this script needs no exemption.
+//
+// One case cannot be a committed fixture and is built instead; see `deletedTrackedFileCase` at the end.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { Fail, main } from './_lib.mjs';
 
@@ -287,6 +290,96 @@ function runGate(dir, extra = []) {
   return { status: r.status ?? 1, output: `${r.stdout}${r.stderr}` };
 }
 
+/**
+ * git, run hermetically: no global and no system configuration is read, the identity is supplied inline and
+ * nothing is signed, so this case behaves the same on a machine whose git is configured and on one whose is
+ * not. `GIT_CONFIG_GLOBAL` is pointed at a path inside the throwaway tree that is never created, which is the
+ * portable spelling of "there is no global config" -- `/dev/null` is not a path on Windows.
+ */
+function git(cwd, noGlobal, args) {
+  const r = spawnSync(
+    'git',
+    ['-c', 'user.name=canary', '-c', 'user.email=canary@example.invalid', '-c', 'commit.gpgsign=false', ...args],
+    { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: noGlobal, GIT_CONFIG_NOSYSTEM: '1' } },
+  );
+  if (r.error) throw r.error;
+  if ((r.status ?? 1) !== 0) throw new Fail(`git ${args.join(' ')} exited ${r.status}\n${indent(`${r.stdout}${r.stderr}`)}`);
+  return r.stdout;
+}
+
+const write = (file, text) => {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+};
+
+/**
+ * The one case no committed fixture can carry, and the reason it is built instead.
+ *
+ * A default scan root is enumerated with `git ls-files`, which lists the *index*: a file deleted from the
+ * working tree and not yet staged is still in the index, so it is listed and is not on disk. No committed
+ * fixture tree can hold a file that is at once tracked and absent, and the flag-supplied roots every fixture
+ * case uses are walked rather than listed, so only a run on the gate's *default* roots reads git's listing at
+ * all. So this case builds a throwaway repository laid out the way the gate discovers one -- the script under
+ * `backend/scripts/`, the spec tree at `specs/` beside it -- commits it, deletes one tracked file from each
+ * listed root, and asserts the gate still returns its normal verdict instead of dying on the absent path.
+ *
+ * Both deleted files carry text that would fail the gate if it were read, so the case also pins which copy is
+ * authoritative: the gate reads the working tree, never the blob the index still holds.
+ */
+function deletedTrackedFileCase(failures) {
+  const label = 'deleted-tracked-file (a tracked file deleted from the working tree is listed by git and absent on disk)';
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-canary-'));
+  try {
+    const repo = path.join(tmp, 'repo');
+    const noGlobal = path.join(tmp, 'no-global-gitconfig');
+    const scripts = path.join(repo, 'backend', 'scripts');
+    write(path.join(scripts, 'check-traceability.mjs'), fs.readFileSync(GATE));
+    write(path.join(scripts, '_lib.mjs'), fs.readFileSync(path.join(here, '_lib.mjs')));
+    write(path.join(repo, 'specs', '001-alpha', 'spec.md'), `# Alpha\n\n- **${fr('001')}**: the alpha requirement\n`);
+    write(path.join(repo, 'specs', '001-alpha', 'tasks.md'), `# Tasks\n\n- [x] T001 build ${fr('001')}\n`);
+    write(path.join(repo, 'backend', 'src', 'test', 'AlphaTest.java'), `// covers ${q('001', fr('001'))}\nclass AlphaTest {}\n`);
+    // The two files that go: one under the backend scan root, one inside the spec tree, because both are
+    // listed with git and each is read by a pass of its own.
+    write(path.join(repo, 'backend', 'src', 'main', 'Removed.java'), `// ${fr('001')}\nclass Removed {}\n`);
+    write(path.join(repo, 'specs', '001-alpha', 'removed.md'), `Removed: ${fr('777')}\n`);
+
+    git(repo, noGlobal, ['init', '-q', '-b', 'main']);
+    git(repo, noGlobal, ['add', '-A']);
+    git(repo, noGlobal, ['commit', '-q', '-m', 'canary']);
+    fs.rmSync(path.join(repo, 'backend', 'src', 'main', 'Removed.java'));
+    fs.rmSync(path.join(repo, 'specs', '001-alpha', 'removed.md'));
+    const listed = git(repo, noGlobal, ['ls-files']);
+    for (const gone of ['backend/src/main/Removed.java', 'specs/001-alpha/removed.md']) {
+      if (!listed.includes(gone)) {
+        failures.push(`${label}: ${gone} is not listed by git ls-files, so the case proves nothing`);
+        return;
+      }
+    }
+
+    const r = spawnSync(process.execPath, [path.join(scripts, 'check-traceability.mjs')], { cwd: repo, encoding: 'utf8' });
+    if (r.error) throw r.error;
+    const status = r.status ?? 1;
+    const output = `${r.stdout}${r.stderr}`;
+    if (status !== 0) {
+      failures.push(`${label}: expected the gate to pass, it exited ${status}\n${indent(output)}`);
+      return;
+    }
+    for (const needle of ['traceability green', 'This gate does not decide:']) {
+      if (!output.includes(needle)) {
+        failures.push(`${label}: the gate passed but never printed ${JSON.stringify(needle)}\n${indent(output)}`);
+      }
+    }
+    // The deleted files' text is never reported: a deleted file carries no citations.
+    for (const needle of [fr('777'), 'Removed.java']) {
+      if (output.includes(needle)) {
+        failures.push(`${label}: the gate read a file that is not on disk -- it named ${JSON.stringify(needle)}\n${indent(output)}`);
+      }
+    }
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 main(() => {
   if (!fs.existsSync(FIXTURES)) throw new Fail(`no fixtures at ${FIXTURES}; the canary has nothing to sing about`);
   const failures = [];
@@ -310,6 +403,8 @@ main(() => {
     }
   }
 
+  deletedTrackedFileCase(failures);
+
   // The completeness half, as BanListNegativeControlTest does it for the ban rules: a fixture nobody asserts
   // is a defect class nobody checks, so it fails here rather than sitting in the tree looking like coverage.
   const onDisk = fs.readdirSync(FIXTURES, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
@@ -318,6 +413,8 @@ main(() => {
   for (const dir of exercised) if (!onDisk.includes(dir)) failures.push(`case ${dir} names no fixture directory`);
 
   if (failures.length > 0) throw new Fail(failures.map((f) => `  - ${f}`).join('\n\n'));
-  console.log(`check-traceability.mjs: ${CASES.length} case(s) over ${onDisk.length} fixture(s), every failure class caught`);
+  console.log(
+    `check-traceability.mjs: ${CASES.length} case(s) over ${onDisk.length} fixture(s) plus 1 built case, every failure class caught`,
+  );
 });
 

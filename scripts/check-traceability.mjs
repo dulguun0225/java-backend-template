@@ -98,6 +98,13 @@
 // What this gate cannot read is printed on every run, pass or fail: a citation is a *claim* that a test
 // covers a requirement, and no static check can tell a claim from a coverage. See the block at the end.
 //
+// What this gate reads is the working tree, never the index. A default scan root is *listed* with
+// `git ls-files`, which reads the index, so a tracked file deleted from the working tree is listed and is not
+// there -- the shape a fresh scaffold has between removing a directory and staging that removal. Such a path
+// is skipped: a file that is not on disk carries no citations, so there is nothing to read and nothing to
+// claim. Absence alone is skipped; a file that is there and unreadable is a verdict the gate cannot reach and
+// fails it, naming the path.
+//
 // Layout is discovered, not assumed: the backend root is this script's parent, the project root is the git
 // toplevel, and the specs tree is `<project root>/specs`. In the upstream template the backend *is* the git
 // toplevel and there is no specs tree at all; the gate still runs there, with zero defined ids -- so every
@@ -193,10 +200,46 @@ function filesUnder(root, walk) {
   return out;
 }
 
-/** The file's text, or null when it is binary -- a NUL byte in the first 8 KiB is the usual tell. */
+/** What a listing named and the working tree does not have. Distinct from the `null` a binary file reads as. */
+const MISSING = Symbol('not on disk');
+
+/** Null when the bytes are binary -- a NUL byte in the first 8 KiB is the usual tell -- and the text otherwise. */
+const asText = (buf) => (buf.subarray(0, 8192).includes(0) ? null : buf.toString('utf8'));
+
+/** The file's bytes, or a gate error naming the path. A read that fails is a verdict this gate cannot reach. */
+function readBytes(file) {
+  try {
+    return fs.readFileSync(file);
+  } catch (e) {
+    throw new Fail(`cannot read ${file}: ${e.code ?? e.message}`);
+  }
+}
+
+/** The file's text, or null when it is binary. For a path something already proved is there. */
 function readText(file) {
-  const buf = fs.readFileSync(file);
-  return buf.subarray(0, 8192).includes(0) ? null : buf.toString('utf8');
+  return asText(readBytes(file));
+}
+
+/**
+ * The text of a file a *listing* named: null when it is binary, MISSING when it is not on disk.
+ *
+ * `git ls-files` lists the index, not the working tree, so a tracked file deleted from the working tree is
+ * listed and is not there -- the shape a fresh scaffold has between removing a directory and staging that
+ * removal. A file that is not on disk carries no citations, so skipping it is this gate's verdict on it and
+ * not a leniency: there is nothing to read and nothing to claim. Only absence is skipped (ENOENT, and the
+ * not-a-file codes a gitlink or a broken symlink reads as); every other error still fails, loudly, naming the
+ * path, because a file that is there and unreadable is a verdict the gate cannot reach. Absence is caught on
+ * the read rather than tested before it, so a file deleted between the listing and the read behaves the same.
+ */
+function readListedText(file) {
+  let buf;
+  try {
+    buf = fs.readFileSync(file);
+  } catch (e) {
+    if (e.code === 'ENOENT' || e.code === 'EISDIR' || e.code === 'ENOTDIR') return MISSING;
+    throw new Fail(`cannot read ${file}: ${e.code ?? e.message}`);
+  }
+  return asText(buf);
 }
 
 /**
@@ -528,7 +571,8 @@ main(() => {
         `${upstreamFile}:${row.line}: ${qualifier} has no snapshot at ${rel(snapshot)}; a declared upstream whose document is not committed here can be neither resolved nor accounted for -- take one with \`node ${REFRESH} ${qualifier} <netos-spec checkout> [<sha>]\``,
       );
     } else {
-      const bytes = fs.readFileSync(snapshot);
+      // One read for both the hash and the text: a second read could hash one set of bytes and parse another.
+      const bytes = readBytes(snapshot);
       const actual = blobSha(bytes);
       if (!SHA.test(pinned)) {
         problems.push(
@@ -539,7 +583,7 @@ main(() => {
           `${upstreamFile}:${row.line}: ${qualifier}'s snapshot ${rel(snapshot)} hashes to ${actual}, not the ${pinned} this row pins; a snapshot is a copy of another repository's document and is never edited here -- re-take it with \`node ${REFRESH} ${qualifier} <netos-spec checkout> [<sha>]\`, which moves the pin and leaves a reviewable diff`,
         );
       } else {
-        const text = readText(snapshot);
+        const text = asText(bytes);
         if (text === null) {
           problems.push(`${rel(snapshot)} is binary; expected the source document's Markdown`);
         } else {
@@ -638,8 +682,8 @@ main(() => {
   for (const root of scanRoots) {
     for (const file of filesUnder(root.dir, root.walk)) {
       if (excluded.some((dir) => isUnder(file, dir))) continue;
-      const text = readText(file);
-      if (text === null) continue;
+      const text = readListedText(file);
+      if (text === MISSING || text === null) continue;
       scanned++;
       const exempt = legacyPaths.has(file);
       for (const token of tokensIn(text)) {
@@ -680,8 +724,8 @@ main(() => {
     // because somebody wrote down that it is not, and the stale-qualifier check below would stop meaning
     // anything. The rows are validated by their own parser instead.
     if (file === droppedFile) continue;
-    const text = readText(file);
-    if (text === null) continue;
+    const text = readListedText(file);
+    if (text === MISSING || text === null) continue;
     const owner = ownerOf(file);
     for (const token of tokensIn(text)) {
       if (token.upstream !== null) {
