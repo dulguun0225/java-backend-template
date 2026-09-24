@@ -47,4 +47,21 @@ class BanListNegativeControlTest {
                         + "no proof it can fire. Add a fixture for each rule listed")
                 .isEmpty();
     }
+
+    /**
+     * The loop above proves the request-body rule fires <em>somewhere</em> in the fixtures package; this pins it
+     * to {@code RawRequestBodyFixture}, to its record-typed body, and not to its second handler, whose body binds
+     * as {@code BoundBody}.
+     */
+    @Test
+    void theRequestBodyRuleFiresOnItsOwnFixture() {
+        String report = BanListArchTest.REQUEST_BODIES_BIND_THROUGH_BOUND_BODY
+                .evaluate(FIXTURES)
+                .getFailureReport()
+                .toString();
+        assertThat(report)
+                .contains(FIXTURES_PACKAGE + ".RawRequestBodyFixture.create")
+                .contains("parameter 0 is a @RequestBody of " + FIXTURES_PACKAGE + ".RawRequestBodyFixture$CreateBody")
+                .doesNotContain("RawRequestBodyFixture.update");
+    }
 }

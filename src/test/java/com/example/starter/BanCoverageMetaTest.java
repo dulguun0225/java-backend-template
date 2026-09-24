@@ -54,7 +54,8 @@ class BanCoverageMetaTest {
         ORDER_BY_ID_COLUMN,
         INLINE_WIRE_CODE,
         SETSCALE_WITHOUT_POLICY,
-        HAND_WRITTEN_VERSIONED_UPDATE
+        HAND_WRITTEN_VERSIONED_UPDATE,
+        REQUEST_BODY_OUTSIDE_BOUND_BODY
     }
 
     static {
@@ -83,6 +84,7 @@ class BanCoverageMetaTest {
         GATES.put(Ban.ORDER_BY_ID_COLUMN, new BanGate(Tier.ARCHUNIT, "noOrderByIdOutsidePager"));
         GATES.put(
                 Ban.HAND_WRITTEN_VERSIONED_UPDATE, new BanGate(Tier.ARCHUNIT, "versionedTableUpdatesGoThroughHelper"));
+        GATES.put(Ban.REQUEST_BODY_OUTSIDE_BOUND_BODY, new BanGate(Tier.ARCHUNIT, "requestBodiesBindThroughBoundBody"));
         GATES.put(
                 Ban.INLINE_WIRE_CODE,
                 new BanGate(

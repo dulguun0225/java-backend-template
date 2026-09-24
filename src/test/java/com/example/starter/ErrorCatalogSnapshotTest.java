@@ -39,8 +39,13 @@ class ErrorCatalogSnapshotTest {
     private static final List<Class<? extends WireError>> RESPONSE_CATALOGS =
             List.of(ApiErrorCode.class, GreetingErrorCode.class);
 
-    /** Every {@link FieldCode} enum. */
-    private static final List<Class<? extends FieldCode>> FIELD_CATALOGS = List.of(GreetingFieldCode.class);
+    /**
+     * Every {@link FieldCode} enum. The cross-cutting request-body codes ({@code validation.unknown-field},
+     * {@code validation.identifier-in-path}, {@code validation.wrong-type}) stay in {@link ApiFieldCode}, raised by
+     * the strict body reader in the base package: a feature catalog does not restate them.
+     */
+    private static final List<Class<? extends FieldCode>> FIELD_CATALOGS =
+            List.of(ApiFieldCode.class, GreetingFieldCode.class);
 
     private static final JavaClasses MAIN = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)

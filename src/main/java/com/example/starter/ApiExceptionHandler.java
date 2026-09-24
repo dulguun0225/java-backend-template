@@ -34,13 +34,27 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Log log = Log.forClass(ApiExceptionHandler.class);
 
+    /**
+     * A request body that is not a JSON object at all. A decimal sent as a JSON number is
+     * {@code money.number-not-string}; everything else is {@code validation.malformed-body} with a caller-safe
+     * {@code detail}: where the JSON stopped being well formed (line and column), that the body is not an
+     * object, or that it is missing. Spring raises this exception with no cause for a required body that was
+     * not sent, which is the missing case. A body that is an object never reaches here: every failure inside it
+     * is a {@code validation.failed} entry naming the member ({@link StrictJsonBodyConverter}).
+     */
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(
             HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        ApiErrorCode code = hasCause(ex, DecimalNotStringException.class)
-                ? ApiErrorCode.NUMBER_NOT_STRING
-                : ApiErrorCode.MALFORMED_BODY;
-        return problem(code);
+        if (hasCause(ex, DecimalNotStringException.class)) {
+            return problem(ApiErrorCode.NUMBER_NOT_STRING);
+        }
+        UnreadableBody unreadable = UnreadableBody.in(ex);
+        String detail =
+                unreadable != null ? unreadable.detail() : new UnreadableBody(UnreadableBody.Kind.MISSING).detail();
+        ProblemDetail body = ProblemDetail.forStatus(ApiErrorCode.MALFORMED_BODY.status());
+        body.setProperty("code", ApiErrorCode.MALFORMED_BODY.wire());
+        body.setDetail(detail);
+        return ResponseEntity.status(ApiErrorCode.MALFORMED_BODY.status()).body(body);
     }
 
     @ExceptionHandler(DecimalNotStringException.class)

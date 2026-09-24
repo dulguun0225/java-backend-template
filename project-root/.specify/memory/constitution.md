@@ -35,6 +35,12 @@ One OpenAPI document per major version, generated from the code, normalized by t
 diffed on every build. Every error is an RFC 9457 problem with a machine `code` from a compile-checked
 catalog that is itself snapshotted. Pagination is keyset only. `PATCH` does not exist.
 
+An identifier travels in the path only: no request body carries a member named after a path variable, not
+even an optional echo. Each operation binds its own request type, and an update body declares only the
+fields that operation writes. A requirement that an attempt to change X is refused is met by X's absence
+from the update body, which the strict body reader refuses (`validation.identifier-in-path`,
+`validation.unknown-field`); never by declaring X and comparing it, and never with a `*-immutable` code.
+
 ## Article V. One repo, one service, one micro-frontend
 
 The service lives under `backend/` and is API-only. The micro-frontend lives under `frontend/`, builds to

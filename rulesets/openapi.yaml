@@ -1,6 +1,6 @@
 # The document lints java-backend-api names under *vacuum lints*: no offset or page parameter, no `PATCH` in the
-# document, `limit` declares a maximum, every error response uses the problem schema, and a temporal property's
-# name matches its format. Spectral-compatible syntax, run by vacuum (pinned in mise.toml) from
+# document, `limit` declares a maximum, every error response uses the problem schema, a temporal property's
+# name matches its format, and every request-body schema is closed. Spectral-compatible syntax, run by vacuum (pinned in mise.toml) from
 # scripts/vacuum-openapi.mjs, which wall.mjs calls. docs/GATES.md carries the row; nothing here is advisory,
 # so every rule is `severity: error` and the exit code is the gate.
 #
@@ -70,3 +70,17 @@ rules:
       function: pattern
       functionOptions:
         notMatch: ".*"
+
+  request-body-schemas-are-closed:
+    description: "A request-body schema declares `additionalProperties: false`: the strict body reader refuses a member the type does not declare, so the contract says so."
+    # Resolved (the default), so a `$ref` to a component schema is checked as that schema. Two checks, because
+    # `falsy` alone passes a schema with no `additionalProperties` at all, which is an open schema: absent fails
+    # on `defined`, `true` fails on `falsy`. Top-level request schema only; a nested object schema is closed by
+    # OpenApiConfiguration.requestBodiesAreClosed and not checked here.
+    given: "$.paths[*][*].requestBody.content[*].schema"
+    severity: error
+    then:
+      - field: additionalProperties
+        function: defined
+      - field: additionalProperties
+        function: falsy

@@ -10,6 +10,7 @@
     },
     "schemas" : {
       "CreateGreetingRequest" : {
+        "additionalProperties" : false,
         "properties" : {
           "name" : {
             "type" : "string"
@@ -42,12 +43,20 @@
             "description" : "Stable machine code from one of the *ErrorCode catalogs",
             "type" : "string"
           },
+          "detail" : {
+            "description" : "Caller-safe text, never the value sent. On validation.malformed-body: the line and column where the JSON stopped being well formed, or that the body is missing or not an object",
+            "type" : "string"
+          },
           "errors" : {
             "description" : "Present only on validation.failed",
             "items" : {
               "properties" : {
                 "code" : {
                   "description" : "A FieldCode wire string, e.g. validation.required",
+                  "type" : "string"
+                },
+                "detail" : {
+                  "description" : "Caller-safe text naming what was expected, e.g. `expected boolean` on validation.wrong-type; never the value sent. Absent when the code alone says it",
                   "type" : "string"
                 },
                 "pointer" : {
@@ -118,7 +127,7 @@
                 }
               }
             },
-            "description" : "validation.failed, validation.malformed-body"
+            "description" : "validation.failed (a field rule, an undeclared member, a wrong JSON type), validation.malformed-body"
           }
         },
         "summary" : "Create one greeting",

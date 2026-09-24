@@ -14,6 +14,7 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaFieldAccess;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
+import com.tngtech.archunit.core.domain.JavaParameter;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchCondition;
@@ -57,6 +58,9 @@ class BanListArchTest {
     static final String GENERATED = BASE + ".db..";
     static final String OBSERVABILITY = BASE + ".platform.observability..";
     static final String KEYSET_PAGER = BASE + ".platform.KeysetPager";
+    static final String BOUND_BODY = BASE + ".platform.error.BoundBody";
+
+    private static final String REQUEST_BODY = "org.springframework.web.bind.annotation.RequestBody";
 
     private static final JavaClasses MAIN = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
@@ -326,6 +330,38 @@ class BanListArchTest {
             .because(
                     "a time-ordered key is monotonic per generator, not across a pool; ORDER BY id is not an ordering (primary-keys); KeysetPager owns the only id tiebreak");
 
+    /**
+     * Every {@code @RequestBody} parameter binds as {@code platform.error.BoundBody}. That is the one type the
+     * strict body reader ({@code StrictJsonBodyConverter}) reads, so a body bound as anything else is read by
+     * Boot's default Jackson converter instead — which drops a member the type does not declare, since Boot
+     * turns {@code FAIL_ON_UNKNOWN_PROPERTIES} off, and answers a wrong-typed value with
+     * {@code validation.malformed-body} naming nothing — and the value reaches the handler without its binding
+     * failures.
+     */
+    static final ArchRule REQUEST_BODIES_BIND_THROUGH_BOUND_BODY = methods()
+            .should(bindEveryRequestBodyAsBoundBody())
+            .because("a @RequestBody bound as anything but BoundBody is read by the lenient default converter: "
+                    + "an undeclared member is dropped silently and a wrong-typed value names no member");
+
+    private static ArchCondition<JavaMethod> bindEveryRequestBodyAsBoundBody() {
+        return new ArchCondition<>("bind every @RequestBody parameter as " + BOUND_BODY) {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                for (JavaParameter parameter : method.getParameters()) {
+                    if (parameter.isAnnotatedWith(REQUEST_BODY)
+                            && !parameter.getRawType().getName().equals(BOUND_BODY)) {
+                        events.add(SimpleConditionEvent.violated(
+                                method,
+                                method.getFullName() + " parameter " + parameter.getIndex()
+                                        + " is a @RequestBody of "
+                                        + parameter.getRawType().getName()
+                                        + ", not " + BOUND_BODY));
+                    }
+                }
+            }
+        };
+    }
+
     private static ArchCondition<JavaMethod> notRenderAVersionedUpdate() {
         return new ArchCondition<>("not render an UPDATE on a version-columned table") {
             @Override
@@ -481,5 +517,10 @@ class BanListArchTest {
     @Test
     void noOrderByIdOutsidePager() {
         NO_ORDER_BY_ID_OUTSIDE_PAGER.check(MAIN);
+    }
+
+    @Test
+    void requestBodiesBindThroughBoundBody() {
+        REQUEST_BODIES_BIND_THROUGH_BOUND_BODY.check(MAIN);
     }
 }

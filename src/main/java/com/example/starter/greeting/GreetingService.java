@@ -5,15 +5,16 @@ import static com.example.starter.db.Tables.GREETING;
 import com.example.starter.db.tables.records.GreetingRecord;
 import com.example.starter.platform.Ids;
 import com.example.starter.platform.Tx;
+import com.example.starter.platform.error.BoundBody;
 import com.example.starter.platform.error.FieldError;
 import com.example.starter.platform.error.Rejected;
-import com.example.starter.platform.error.ValidationFailed;
 import com.example.starter.platform.observability.Log;
 import com.example.starter.platform.observability.LogField;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 
 /**
@@ -36,8 +37,12 @@ public class GreetingService {
         this.clock = clock;
     }
 
-    public GreetingView create(CreateGreetingRequest request) {
-        String name = validate(request);
+    /**
+     * Validates the body before the transaction opens, so a refused body runs no statement: the strict reader's
+     * binding failures and the field rules below leave as one {@code validation.failed}.
+     */
+    public GreetingView create(BoundBody<CreateGreetingRequest> body) {
+        String name = body.validate(GreetingService::validName);
         UUID id = Ids.newId();
         OffsetDateTime now = OffsetDateTime.now(clock);
         tx.write(dsl -> dsl.insertInto(GREETING)
@@ -57,13 +62,16 @@ public class GreetingService {
                 .orElseThrow(() -> new Rejected(GreetingErrorCode.NOT_FOUND));
     }
 
-    private static String validate(CreateGreetingRequest request) {
+    /** The field rules: each failure is appended to {@code errors}, and no value is produced when any is. */
+    private static @Nullable String validName(CreateGreetingRequest request, List<FieldError> errors) {
         String name = request.name();
         if (name == null || name.isBlank()) {
-            throw new ValidationFailed(List.of(FieldError.of("/name", GreetingFieldCode.REQUIRED)));
+            errors.add(FieldError.of("/name", GreetingFieldCode.REQUIRED));
+            return null;
         }
         if (name.length() > NAME_MAX_LENGTH) {
-            throw new ValidationFailed(List.of(FieldError.of("/name", GreetingFieldCode.TOO_LONG)));
+            errors.add(FieldError.of("/name", GreetingFieldCode.TOO_LONG));
+            return null;
         }
         return name.strip();
     }
