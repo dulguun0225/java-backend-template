@@ -2,6 +2,12 @@
 
 One repo, one service, one micro-frontend.
 
+Base branch: `main`
+
+The line above names the trunk: feature branches are cut from it and merged back into it, and `build-feature`
+reads it as written, in that one form, unindented and once. Rename the trunk and change the name between the
+backticks in the same commit; the CI trigger and the branch ruleset name the trunk too.
+
 - `backend/` is the Java service, API-only, created from `dulguun0225/java-backend-template`. Its own
   `CLAUDE.md` and `docs/GATES.md` say what is decided there; `node backend/scripts/wall.mjs` is its definition of done.
 - `frontend/` is the micro-frontend, a separate static deploy. Not started; `frontend/README.md` records the

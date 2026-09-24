@@ -32,6 +32,13 @@ gate here disagree, the gate is wrong or stale: fix the gate, do not bypass it.
 
 ## Working here
 
+Base branch: `main`
+
+The line above names the trunk: feature branches are cut from it and merged back into it. `build-feature`
+reads it as written, in that one form, unindented and once, and only from the `CLAUDE.md` at a repository's
+root: where this directory is `backend/` inside a project, the project's own `CLAUDE.md` states the trunk
+and this line is not read. A repository whose trunk has another name changes the name between the backticks.
+
 - `node scripts/wall.mjs` is exactly what CI runs: forbidden flags, squawk, the traceability gate's canary and then the traceability gate itself (that order: a gate that cannot fail proves nothing), `mvn verify`, the jOOQ regenerate-twice drift check, the OpenAPI rerun under another timezone, the vacuum ruleset over the committed document, the vulnerability scan. Docker required. Scripts are Node, standard library only; `mise install` gives the pinned Node.
 - `mvn spotless:apply` formats. `mvn -Pcodegen generate-sources` regenerates jOOQ after a migration; it runs before compile, so it works while main code still references a table that does not exist yet.
 - A feature's `spec.md` is written by a domain expert with stock spec-kit (`/speckit-specify`, `/speckit-clarify`);
