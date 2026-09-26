@@ -97,7 +97,8 @@ moving a pin.
 Copy the `greeting` package's shape: a migration under `src/main/resources/db/migration`, `mvn -Pcodegen
 generate-sources`, a `*ErrorCode` enum (add it to `ErrorCatalogSnapshotTest`), a service that goes through
 `Tx`, a controller, an `*IT` against Testcontainers, and an owner row for the new table in
-`TableOwnershipTest.OWNERS`. If the table carries a `version` column, every `UPDATE` on it goes through
+`TableOwnershipTest.OWNERS`. The feature may read any other feature's table through the generated jOOQ tables;
+only the owner writes a table. If the table carries a `version` column, every `UPDATE` on it goes through
 `VersionedUpdate` — the ban list refuses any other spelling. The build tells you when the error-catalog or OpenAPI
 snapshot needs a deliberate update and writes the new copy under `target/`. Then delete `greeting`.
 

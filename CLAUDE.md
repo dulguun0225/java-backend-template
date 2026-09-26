@@ -76,7 +76,7 @@ and this line is not read. A repository whose trunk has another name changes the
   runs regardless, with zero defined ids, and a bare id still fails. It is a step in `scripts/wall.mjs`;
   `docs/GATES.md` carries the caveats it cannot reach.
 - A new wire error code goes in a catalog enum and in `ErrorCatalogSnapshotTest`'s list; the build tells you when the snapshot needs updating.
-- A new table needs an owner row in `TableOwnershipTest.OWNERS`; the build fails until it has one.
+- A new table needs an owner row in `TableOwnershipTest.OWNERS`; the build fails until it has one. Any feature may read any table through the generated jOOQ tables; only the owner writes it, and a method that writes may name no other feature's table, so a read of another feature's table goes in a method that starts no write.
 - A new endpoint changes `openapi/v1.json`; the build writes the actual document to `target/` and tells you to review and copy it.
 - A new ban needs three things: the rule in `BanListArchTest`, a fixture in `starterfixtures`, and a row in `BanCoverageMetaTest`. The build refuses any two without the third.
 - The coverage floor and the migration timeouts are this service's call; change them in one commit that says why.

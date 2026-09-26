@@ -3,8 +3,10 @@ package com.example.starter;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.starter.db.Tables;
+import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaFieldAccess;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -16,14 +18,26 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Stream;
+import org.jooq.DSLContext;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 /**
- * Table ownership: one feature package owns each table, and only that owner — or a package explicitly
- * licensed to read across features — may name it (ai-maintainer <i>no cross-module data access</i>).
- * Cross-feature reads go through generated jOOQ, never through another feature's classes, which
- * {@link LayeringArchTest} already forbids.
+ * Table ownership: one feature package owns each table, and only that owner writes it (ai-maintainer
+ * <i>each table written only by the module that owns it</i>). Any feature may read any table through the
+ * generated jOOQ tree, which {@link LayeringArchTest} names shared infrastructure; it still never reads through
+ * another feature's classes, which {@code LayeringArchTest} forbids.
+ *
+ * <p>A method-scoped bytecode approximation, like the ban list's versioned-update and id-ordering rules: a
+ * method that starts a write — a {@code DSLContext} or {@code DSL} insert, update, delete, merge, truncate,
+ * batch or load, or any {@code VersionedUpdate} call — may name no table its feature does not own. ArchUnit
+ * counts an access inside a lambda toward the method that declares it, so a {@code tx.write(dsl -> ...)} body
+ * is checked as part of its service method. So a method that reads another feature's table and writes its own
+ * is reported too, even with the read in its own {@code tx.read}: read the other table in a method that starts
+ * no write. What it does not reach: a table or record held in a field or variable declared outside the writing
+ * method, or built in another method and passed in as a plain {@code Table<?>}, is not named by the method that
+ * writes it.
  *
  * <p>A new table with no owner row fails {@link #everyTableHasAnOwner}, so the map below cannot go stale.
  */
@@ -32,21 +46,40 @@ class TableOwnershipTest {
     /** Generated {@code Tables} constant name to the feature package that owns the table. */
     private static final Map<String, String> OWNERS = Map.of("GREETING", "greeting");
 
-    /**
-     * Feature packages licensed to read tables they do not own. Empty here: a project names the package it
-     * licenses to read across features, if it has one, and says why in the same commit.
-     */
-    private static final Set<String> LICENSED_READERS = Set.of();
-
     private static final String BASE = BanListArchTest.BASE;
     private static final String GENERATED_PREFIX = BASE + ".db.";
+    private static final String VERSIONED_UPDATE = BASE + ".platform.VersionedUpdate";
+
+    /** The {@code DSLContext} and {@code DSL} methods that start a statement which changes rows. */
+    private static final Set<String> WRITE_ENTRIES = Set.of(
+            "insertInto",
+            "insertQuery",
+            "update",
+            "updateQuery",
+            "delete",
+            "deleteFrom",
+            "deleteQuery",
+            "mergeInto",
+            "truncate",
+            "truncateTable",
+            "batchInsert",
+            "batchUpdate",
+            "batchStore",
+            "batchDelete",
+            "batchMerge",
+            "executeInsert",
+            "executeUpdate",
+            "executeDelete",
+            "loadInto");
+
+    /** Fixture features sit one level below this package: {@code ownership.greeting} and {@code ownership.reader}. */
+    private static final String FIXTURE_BASE = BanListNegativeControlTest.FIXTURES_PACKAGE + ".ownership";
 
     private static final JavaClasses MAIN = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
             .importPackages(BASE);
 
-    private static final JavaClasses FIXTURES =
-            new ClassFileImporter().importPackages(BanListNegativeControlTest.FIXTURES_PACKAGE);
+    private static final JavaClasses FIXTURES = new ClassFileImporter().importPackages(FIXTURE_BASE);
 
     @Test
     void everyTableHasAnOwner() {
@@ -66,63 +99,107 @@ class TableOwnershipTest {
     }
 
     @Test
-    void onlyTheOwnerTouchesATable() {
-        assertThat(violations(MAIN)).isEmpty();
+    void onlyTheOwnerWritesATable() {
+        assertThat(violations(MAIN, BASE))
+                .as("only the owning feature writes a table; a method that reads another feature's table and"
+                        + " writes its own is reported too, so read the other table in a method that starts no write")
+                .isEmpty();
     }
 
     @Test
-    void theRuleFiresOnAFixture() {
+    void theRuleReportsAForeignWriteAndNothingElse() {
         // The negative control this test needs: BanListNegativeControlTest only reaches BanListArchTest.
-        // OffsetPaginationFixture touches GREETING from outside any owning feature package.
-        assertThat(violations(FIXTURES))
-                .as("the ownership predicate must fire on the fixtures package")
-                .isNotEmpty();
+        // Feature "reader" reads GREETING in one fixture and writes it in another; feature "greeting" writes it.
+        assertThat(FIXTURES.size())
+                .as("the ownership fixtures package imported nothing")
+                .isGreaterThan(0);
+        assertThat(violations(FIXTURES, FIXTURE_BASE))
+                .as("only the write by a feature that does not own the table is reported")
+                .containsExactly(FIXTURE_BASE
+                        + ".reader.WritesAnotherFeaturesTable.insert (feature reader) writes and names GREETING,"
+                        + " owned by greeting");
     }
 
-    private static List<String> violations(JavaClasses classes) {
+    private static List<String> violations(JavaClasses classes, String base) {
         List<String> out = new ArrayList<>();
         for (JavaClass type : classes) {
             String name = type.getName();
-            if (name.startsWith(GENERATED_PREFIX)
-                    || name.startsWith(BASE + ".platform.")
-                    || name.equals(BASE + ".db.Tables")) {
+            if (name.startsWith(GENERATED_PREFIX) || name.startsWith(BASE + ".platform.")) {
                 continue;
             }
-            String feature = featureOf(name);
-            for (JavaFieldAccess access : type.getFieldAccessesFromSelf()) {
-                String owner = access.getTarget().getOwner().getName();
-                String constant = access.getTarget().getName();
-                if (owner.startsWith(GENERATED_PREFIX) && OWNERS.containsKey(constant)) {
-                    check(out, name, feature, constant);
+            String feature = featureOf(name, base);
+            for (JavaCodeUnit unit : type.getCodeUnits()) {
+                if (!writes(unit)) {
+                    continue;
                 }
-            }
-            for (JavaClass dependency : type.getDirectDependenciesFromSelf().stream()
-                    .map(d -> d.getTargetClass())
-                    .toList()) {
-                String constant = constantFor(dependency.getName());
-                if (constant != null) {
-                    check(out, name, feature, constant);
+                String where = unit.getOwner().getName() + "." + unit.getName();
+                for (String constant : tablesNamedBy(unit)) {
+                    String owner = OWNERS.get(constant);
+                    if (feature == null) {
+                        out.add(where + " writes and names " + constant + " from outside any feature package");
+                    } else if (!feature.equals(owner)) {
+                        out.add(where + " (feature " + feature + ") writes and names " + constant + ", owned by "
+                                + owner);
+                    }
                 }
             }
         }
         return out;
     }
 
-    private static void check(List<String> out, String className, @Nullable String feature, String constant) {
-        String owner = OWNERS.get(constant);
-        if (feature == null) {
-            out.add(className + " touches " + constant + " from outside any feature package");
-        } else if (!feature.equals(owner) && !LICENSED_READERS.contains(feature)) {
-            out.add(className + " (feature " + feature + ") touches " + constant + " owned by " + owner);
+    private static boolean writes(JavaCodeUnit unit) {
+        return Stream.concat(unit.getMethodCallsFromSelf().stream(), unit.getMethodReferencesFromSelf().stream())
+                .anyMatch(TableOwnershipTest::startsAWrite);
+    }
+
+    private static boolean startsAWrite(JavaAccess<?> access) {
+        JavaClass owner = access.getTarget().getOwner();
+        if (owner.getName().equals(VERSIONED_UPDATE)) {
+            return true;
+        }
+        return WRITE_ENTRIES.contains(access.getTarget().getName())
+                && (owner.isAssignableTo(DSLContext.class) || owner.getName().equals("org.jooq.impl.DSL"));
+    }
+
+    /** Every owned table the code unit names: a {@code Tables} constant, a table or record class, a signature type. */
+    private static Set<String> tablesNamedBy(JavaCodeUnit unit) {
+        Set<String> out = new TreeSet<>();
+        for (JavaFieldAccess access : unit.getFieldAccesses()) {
+            String owner = access.getTarget().getOwner().getName();
+            String field = access.getTarget().getName();
+            if (owner.equals(GENERATED_PREFIX + "Tables") && OWNERS.containsKey(field)) {
+                out.add(field);
+            } else {
+                addIfTable(out, owner);
+            }
+        }
+        for (JavaAccess<?> access : Stream.concat(
+                        Stream.concat(
+                                unit.getMethodCallsFromSelf().stream(), unit.getConstructorCallsFromSelf().stream()),
+                        unit.getMethodReferencesFromSelf().stream())
+                .toList()) {
+            addIfTable(out, access.getTarget().getOwner().getName());
+        }
+        for (JavaClass parameter : unit.getRawParameterTypes()) {
+            addIfTable(out, parameter.getName());
+        }
+        addIfTable(out, unit.getRawReturnType().getName());
+        return out;
+    }
+
+    private static void addIfTable(Set<String> out, String className) {
+        String constant = constantFor(className);
+        if (constant != null) {
+            out.add(constant);
         }
     }
 
-    /** The feature package: the segment directly below the base package, or null when there is none. */
-    private static @Nullable String featureOf(String className) {
-        if (!className.startsWith(BASE + ".")) {
+    /** The feature package: the segment directly below {@code base}, or null when there is none. */
+    private static @Nullable String featureOf(String className, String base) {
+        if (!className.startsWith(base + ".")) {
             return null;
         }
-        String rest = className.substring(BASE.length() + 1);
+        String rest = className.substring(base.length() + 1);
         int dot = rest.indexOf('.');
         return dot < 0 ? null : rest.substring(0, dot);
     }

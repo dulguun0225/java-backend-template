@@ -53,6 +53,8 @@ exposure point, and nowhere else.
 
 A feature is one package under the base package, depending on the platform tier and never on another
 feature. It owns its migrations, its error catalog, its service, its controller and its integration test.
+It owns its tables: only it writes them, and any feature may read them through the generated jOOQ tables,
+never through the owner's classes.
 One feature package is the worked shape at any time and `backend/CLAUDE.md` names it; copy its shape. The
 template's sample package is deleted by the first real feature and is never the shape again.
 
