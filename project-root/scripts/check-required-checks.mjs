@@ -11,7 +11,16 @@ const { capture, lines, main, Fail } = lib;
 main(() => {
   process.chdir(path.resolve(import.meta.dirname, '..'));
   const repo = process.env.GITHUB_REPOSITORY || capture('gh', ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']);
-  const branch = process.env.DEFAULT_BRANCH || 'main';
+  // Every branch a committed ruleset names: dev and main.
+  const branches = [];
+  for (const file of fs.readdirSync('.github/rulesets').filter((f) => f.endsWith('.json')).sort()) {
+    for (const ref of JSON.parse(fs.readFileSync(path.join('.github/rulesets', file), 'utf8')).conditions.ref_name.include) {
+      const m = /^refs\/heads\/(.+)$/.exec(ref);
+      if (!m) throw new Fail(`.github/rulesets/${file} names ${ref}; name each branch as refs/heads/<branch>`);
+      branches.push(m[1]);
+    }
+  }
+  if (branches.length === 0) throw new Fail('no branch named in .github/rulesets/');
   // Job names: the two-space-indented keys under `jobs:` in the committed workflow.
   const expected = [];
   let inJobs = false;
@@ -21,16 +30,18 @@ main(() => {
     if (m) expected.push(m[1]);
   }
   expected.sort();
-  const actual = lines(capture('gh', ['api', `repos/${repo}/rules/branches/${branch}`, '--jq',
-    '.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'])).sort();
-  if (actual.length === 0) {
-    throw new Fail(`no required status checks on ${repo}@${branch}; apply .github/rulesets/main.json (node scripts/apply-ruleset.mjs)`);
+  for (const branch of branches) {
+    const actual = lines(capture('gh', ['api', `repos/${repo}/rules/branches/${branch}`, '--jq',
+      '.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'])).sort();
+    if (actual.length === 0) {
+      throw new Fail(`no required status checks on ${repo}@${branch}; apply .github/rulesets/ (node scripts/apply-ruleset.mjs)`);
+    }
+    if (expected.join('\n') !== actual.join('\n')) {
+      console.error(`required checks on ${branch} differ from committed job names`);
+      console.error('expected (ci.yml jobs):'); console.error(expected.join('\n'));
+      console.error('required (forge):'); console.error(actual.join('\n'));
+      throw new Fail(`required checks on ${branch} differ from committed job names`);
+    }
   }
-  if (expected.join('\n') !== actual.join('\n')) {
-    console.error('required checks differ from committed job names');
-    console.error('expected (ci.yml jobs):'); console.error(expected.join('\n'));
-    console.error('required (forge):'); console.error(actual.join('\n'));
-    throw new Fail('required checks differ from committed job names');
-  }
-  console.log(`required status checks match ci.yml job names: ${expected.join(' ')}`);
+  console.log(`required status checks on ${branches.join(' and ')} match ci.yml job names: ${expected.join(' ')}`);
 });

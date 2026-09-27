@@ -45,6 +45,7 @@ backend:
     - name: docker:28-dind
       alias: docker
   script:
+    - '[ "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-}" != main ] || [ "${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-}" = dev ] || { echo "main takes merge requests from dev only"; exit 1; }'
     - cd backend
     - mise exec -- node scripts/wall.mjs "${CI_MERGE_REQUEST_DIFF_BASE_SHA:-$CI_COMMIT_BEFORE_SHA}"
   artifacts:

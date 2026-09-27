@@ -2,11 +2,13 @@
 
 One repo, one service, one micro-frontend.
 
-Base branch: `main`
+Base branch: `dev`
 
-The line above names the trunk: feature branches are cut from it and merged back into it, and `build-feature`
-reads it as written, in that one form, unindented and once. Rename the trunk and change the name between the
-backticks in the same commit; the CI trigger and the branch ruleset name the trunk too.
+The line above names the trunk: feature branches are cut from `dev` and merged back into it, and `build-feature`
+reads it as written, in that one form, unindented and once. Nothing is committed on `main`: it takes pull
+requests from `dev` only, merged with a merge commit, and `.github/rulesets/main.json` and the source check in
+the `backend` job hold it there. Rename a branch and change every place that names it in the same commit: this
+line, the CI trigger, the source check and the rulesets.
 
 - `backend/` is the Java service, API-only, created from `dulguun0225/java-backend-template`. Its own
   `CLAUDE.md` and `docs/GATES.md` say what is decided there; `node backend/scripts/wall.mjs` is its definition of done.
@@ -27,11 +29,12 @@ backticks in the same commit; the CI trigger and the branch ruleset name the tru
   bare id it wraps and resolving against the local requirement of that number. Neither list is shipped and
   neither is required: the first feature that needs a row is what creates the file. `--report` prints the
   coverage matrix, the spec→tasks gap and the deferred ids.
-- `.github/workflows/ci.yml` has two jobs, `backend` and `frontend`, both required on `main` by
-  `.github/rulesets/main.json` (`node scripts/apply-ruleset.mjs` applies it). Nothing is advisory.
+- `.github/workflows/ci.yml` has two jobs, `backend` and `frontend`, both required on `dev` and on `main` by
+  `.github/rulesets/dev.json` and `main.json` (`node scripts/apply-ruleset.mjs` applies both). Nothing is advisory.
 - `.gitlab-ci.yml` mirrors those two jobs for a GitLab remote (a docker-executor runner with `privileged = true`
   for docker:dind). Whichever forge this repo is not on, its file stays: both are deploy files
-  `check-forbidden-flags.mjs` scans, and the ruleset script only means something on GitHub.
+  `check-forbidden-flags.mjs` scans, and the ruleset script only means something on GitHub. On GitLab, protect
+  `dev` and `main` in the project's settings: no push to either, merge by merge request.
 - `.specify/memory/constitution.md` is pre-filled for spec-kit. Articles I–VI restate what `backend/` already
   enforces and are not re-planned. Article VII is an optional slot that starts empty: nothing reads whether it
   is filled, nobody is owed a `/speckit.constitution` run, and it is amended by a commit with its reason when
@@ -39,8 +42,8 @@ backticks in the same commit; the CI trigger and the branch ruleset name the tru
   Context inherits them.
 - `compose.yaml` runs PostgreSQL and the service locally: `docker compose up --build`.
 - `.claude/settings.json` pins `worktree.baseRef: head`: an agent run in an isolated worktree starts from the
-  branch you are on, not from `main`. Feature work lives on `feature/<NNN>-<name>` ahead of `main`, so a
-  worktree cut from `main` lacks the files earlier tasks created and the agent silently works on the wrong tree.
+  branch you are on, not from `dev`. Feature work lives on `feature/<NNN>-<name>` ahead of `dev`, so a
+  worktree cut from `dev` lacks the files earlier tasks created and the agent silently works on the wrong tree.
   `.claude/worktrees/` is ignored; those worktrees are merged and removed, never committed.
 
 Install the skills once per machine: `npx skills add dulguun0225/skills -a claude-code -y`.

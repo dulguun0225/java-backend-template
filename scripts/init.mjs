@@ -3,7 +3,8 @@
 //   node scripts/init.mjs --package com.acme.someservice1 --name some_service_1 [--group com.acme]
 //
 // Two modes, detected from git:
-//   standalone  this directory is the repository root: rename only.
+//   standalone  this directory is the repository root: rename, and move the base branch from main to dev in the
+//               root CLAUDE.md and the CI trigger, since a service works on dev and this template on main.
 //   vendored    this directory is <project>/backend (added with `git subtree add --prefix backend ...`): rename,
 //               then lift project-root/ one level up — root CI with backend+frontend jobs, ruleset, compose,
 //               frontend/ stub, spec-kit constitution, project CLAUDE.md — never overwriting a file that exists,
@@ -143,6 +144,16 @@ main(() => {
     console.log(`lifted project-root/ to ${path.dirname(here)}; removed the template's own .github/ and renovate.json from ${path.basename(here)}/`);
     console.log('next: mvn -Pcodegen generate-sources && mvn spotless:apply && mvn verify here (the rename moves imports and re-wraps lines, so format before the wall); then at the project root: git add -A, commit, node scripts/apply-ruleset.mjs');
   } else {
+    // 6. the template's own CLAUDE.md and CI are now the service's, and a service works on dev
+    for (const [file, from, to] of [
+      ['CLAUDE.md', /^Base branch: `main`$/m, 'Base branch: `dev`'],
+      ['.github/workflows/ci.yml', /^    branches: \[main\]$/m, '    branches: [dev, main]'],
+    ]) {
+      const text = fs.readFileSync(file, 'utf8');
+      if (!from.test(text)) throw new Fail(`${file} does not carry the line to move to dev: ${from}`);
+      fs.writeFileSync(file, text.replace(from, to));
+    }
+    console.log('base branch: dev (CLAUDE.md, .github/workflows/ci.yml); create dev and make it the default branch on the forge');
     console.log('next: mvn -Pcodegen generate-sources && mvn spotless:apply && mvn verify, then commit (the rename moves imports and re-wraps lines, so format before the wall)');
   }
 });

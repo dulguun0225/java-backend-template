@@ -39,6 +39,8 @@ The line above names the trunk: feature branches are cut from it and merged back
 reads it as written, in that one form, unindented and once, and only from the `CLAUDE.md` at a repository's
 root: where this directory is `backend/` inside a project, the project's own `CLAUDE.md` states the trunk
 and this line is not read. A repository whose trunk has another name changes the name between the backticks.
+This template works on `main`; the services made from it work on `dev`, and `scripts/init.mjs` sets that in
+the project `CLAUDE.md` it lifts and, in a standalone service, in this line.
 
 - `node scripts/wall.mjs` is exactly what CI runs: forbidden flags, squawk, the traceability gate's canary and then the traceability gate itself (that order: a gate that cannot fail proves nothing), `mvn verify`, the jOOQ regenerate-twice drift check, the OpenAPI rerun under another timezone, the vacuum ruleset over the committed document, the vulnerability scan. Docker required. Scripts are Node, standard library only; `mise install` gives the pinned Node.
 - `mvn spotless:apply` formats. `mvn -Pcodegen generate-sources` regenerates jOOQ after a migration; it runs before compile, so it works while main code still references a table that does not exist yet.
