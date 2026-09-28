@@ -7,8 +7,8 @@
 //               root CLAUDE.md and the CI trigger, since a service works on dev and this template on main.
 //   vendored    this directory is <project>/backend (added with `git subtree add --prefix backend ...`): rename,
 //               then lift project-root/ one level up — root CI with backend+frontend jobs, ruleset, compose,
-//               frontend/ stub, spec-kit constitution, project CLAUDE.md — never overwriting a file that exists,
-//               and remove the template's own .github/ and renovate.json, which only mean something at a root.
+//               frontend/ stub, project CLAUDE.md — never overwriting a file that exists, and remove the
+//               template's own .github/ and renovate.json, which only mean something at a root.
 // Everything else (the gates, the scripts) is deliberately identical across services.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -122,15 +122,7 @@ main(() => {
       const rel = path.relative('project-root', path.join(f.parentPath, f.name));
       const dest = path.join('..', rel);
       if (fs.existsSync(dest)) {
-        const shown = rel.split(path.sep).join('/');
-        if (shown === '.specify/memory/constitution.md') {
-          console.log(
-            `WARNING: kept existing ../${shown}; the template's platform articles (I–VI) were NOT applied. ` +
-              'spec-kit ran before the scaffold: merge them in by hand, or /speckit.plan will re-plan the stack.',
-          );
-        } else {
-          console.log(`kept existing ../${shown} (template copy not applied)`);
-        }
+        console.log(`kept existing ../${rel.split(path.sep).join('/')} (template copy not applied)`);
       } else {
         fs.mkdirSync(path.dirname(dest), { recursive: true });
         const source = path.join(f.parentPath, f.name);

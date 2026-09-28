@@ -15,7 +15,7 @@ each gate to the directive it implements and lists, by name, what no gate here r
 
 The intended shape is one project repo holding one service and one micro-frontend. This template is the
 service; it is vendored into `backend/` and lifts the project-level files (root CI with `backend` and
-`frontend` jobs, branch ruleset, compose, `frontend/` stub, spec-kit constitution, project `CLAUDE.md`)
+`frontend` jobs, branch ruleset, compose, `frontend/` stub, project `CLAUDE.md`)
 one level up:
 
 ```bash
@@ -31,22 +31,12 @@ gh repo edit acme/some_service_1 --default-branch dev
 node scripts/apply-ruleset.mjs                                              # dev: direct pushes, no force-push; main: PR + backend + frontend checks
 ```
 
-The `java-backend-rules` skill ships this sequence as one command, `scripts/new-backend.mjs`, pinned to a
-recorded commit of this template; prefer it over retyping the lines above.
+A project is created by the `new-java-backend` skill in `dulguun0225/skills` (`npx skills add
+dulguun0225/skills -g -a claude-code -y`), which lands this template at a recorded commit; prefer it over retyping the lines above.
 
 `git subtree` keeps the template's history, so `git subtree pull --prefix backend … main --squash` can bring
 later gate changes in; expect to resolve the package rename when it does. Then install the skills for the
-agent (`npx skills add dulguun0225/skills -a claude-code -y`) and, for spec-kit, `specify init --here`; the
-pre-filled `.specify/memory/constitution.md` survives it.
-
-**Scaffold before spec-kit's first command.** The order is: this scaffold, `specify init --here`, then a
-feature: `/speckit.specify`, `/speckit.plan`, `/speckit.tasks`, `/speckit.implement`. Running
-`/speckit.constitution` is not a step. Articles I–VI restate what `mvn verify` already enforces, and
-`/speckit.plan` inherits them instead of re-planning the stack. Article VII is an optional slot that starts
-empty; nothing reads whether it is filled, and it is amended later, as a commit with its reason, when a
-feature's plan produces a rule that binds more than that feature. Run spec-kit first and the constitution it writes is the one that stays: `init.mjs`
-never overwrites, so the platform articles are dropped and the plan will re-decide what the template has
-already decided.
+agent (`npx skills add dulguun0225/skills -g -a claude-code -y`).
 
 ## Use it standalone
 
@@ -68,10 +58,9 @@ Toolchain: `mise install` reads `mise.toml` (Java 25, Maven 3.9, Node 24, osv-sc
 | `openapi/v1.json` | The committed, normalized contract the build diffs; a frontend's generated client types come from it |
 | `codegen/` | The jOOQ codegen runner, launched as a Java source-file program so it needs nothing compiled first |
 | `rulesets/openapi.yaml` | The five vacuum lints the committed document passes; `scripts/vacuum-openapi.mjs` runs them |
-| `scripts/wall.mjs` | The whole wall as one command; the template's CI and a project's `backend` job both run it |
-| `scripts/` | The wall's parts: forbidden flags, squawk, the spec↔code traceability gate and the canary that proves it, codegen drift, osv-scanner; `init.mjs`; and `_lib.mjs`, the helpers they share. Node, standard library only |
-| `scripts/fixtures/traceability/` | The traceability canary's fixture trees, one per failure class the gate claims and one per accepted shape. Deliberately full of the defects the gate catches, so the default scan skips them |
-| `project-root/` | What a project needs at its root: `.github/workflows/ci.yml` (backend + frontend jobs), `.github/rulesets/` (`dev.json`, `main.json`), `compose.yaml`, `frontend/README.md`, `.specify/memory/constitution.md`, `CLAUDE.md`, `scripts/` (ruleset, pins, required-checks, frontend gate). `init.mjs` lifts it when vendored |
+| `scripts/wall.mjs` | The whole wall as one command; the template's CI and a project's `backend` job both run it. After squawk it runs the Node scripts a project lists, one path per line relative to the project root, in `scripts/wall-checks.txt` there; the template lists none |
+| `scripts/` | The wall's parts: forbidden flags, squawk, codegen drift, osv-scanner; `init.mjs`; and `_lib.mjs`, the helpers they share. Node, standard library only |
+| `project-root/` | What a project needs at its root: `.github/workflows/ci.yml` (backend + frontend jobs), `.github/rulesets/` (`dev.json`, `main.json`), `compose.yaml`, `frontend/README.md`, `CLAUDE.md`, `scripts/` (ruleset, pins, required-checks, frontend gate). `init.mjs` lifts it when vendored |
 | `docs/GATES.md` | Gate-to-directive map and the named gaps |
 | `CLAUDE.md` | What the agent reads first in this directory |
 
@@ -80,13 +69,7 @@ Toolchain: `mise install` reads `mise.toml` (Java 25, Maven 3.9, Node 24, osv-sc
 Compile wall (Error Prone, NullAway, JSpecify; empty catch and dropped future are errors). Enforcer (Java
 pin, no dynamic versions, jqwik ceiling, banned dependencies). Spotless. An executable ban list with a
 coverage meta-test and a negative-control fixture per rule. Layering. Migration conventions with negative
-fixtures, plus squawk. Spec↔code traceability: no bare requirement id anywhere, every `NNN/FR-nnn` citation
-resolving against `specs/`, every id of a finished feature cited from a test or waived with a kind and a
-reason, every id of a feature that has a `tasks.md` named by a task there, and every `<QUALIFIER>/FR-nnn`
-citation of a source document resolving against a committed, pinned copy of it whose every requirement is
-cited here or carried by a dropped row — run straight after a canary that proves the gate still catches every
-failure class it claims. jOOQ
-regenerated twice from the migrations and diffed. Error catalog snapshot.
+fixtures, plus squawk. jOOQ regenerated twice from the migrations and diffed. Error catalog snapshot.
 OpenAPI document normalized and snapshotted, rerun under another timezone, and linted by vacuum against a committed ruleset. Error edge tests: every error
 coded, the 500 leaks nothing and its incident id resolves to one log event. Property tests on `Money`.
 Integration tests on real PostgreSQL. JaCoCo floor. Licence allowlist. SBOM plus osv-scanner with a
