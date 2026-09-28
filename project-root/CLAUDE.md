@@ -25,7 +25,7 @@ An agent of the `build-feature` or `plan-feature` workflow is not such a session
 prompt names.
 
 A feature's spec is fixed once its build has started: origin has the feature's build branch
-`feature/<NNN>-<name>`, or every task in its `tasks.md` is ticked. A later change to what that feature does is
+`build/<NNN>-<name>`, or every task in its `tasks.md` is ticked. A later change to what that feature does is
 specified as a new feature with `/speckit-specify`, and that spec states the change to the earlier feature.
 
 - `backend/` is the Java service, API-only, created from `dulguun0225/java-backend-template`. Its own
@@ -62,7 +62,7 @@ specified as a new feature with `/speckit-specify`, and that spec states the cha
   Context inherits them.
 - `compose.yaml` runs PostgreSQL and the service locally: `docker compose up --build`.
 - `.claude/settings.json` pins `worktree.baseRef: head`: an agent run in an isolated worktree starts from the
-  branch you are on, not from `dev`. The unattended build works on `feature/<NNN>-<name>` ahead of `dev`, so a
+  branch you are on, not from `dev`. The unattended build works on `build/<NNN>-<name>` ahead of `dev`, so a
   worktree cut from `dev` lacks the files earlier tasks created and the agent silently works on the wrong tree.
   `.claude/worktrees/` is ignored; those worktrees are merged and removed, never committed.
 
