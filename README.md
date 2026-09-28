@@ -28,7 +28,7 @@ cd .. && git add -A && git commit -m "init: some_service_1 from java-backend-tem
 git branch main                                                             # main takes pull requests from dev only
 gh repo create acme/some_service_1 --private --source=. --push && git push -u origin main
 gh repo edit acme/some_service_1 --default-branch dev
-node scripts/apply-ruleset.mjs                                              # PR + backend + frontend checks required on dev and main
+node scripts/apply-ruleset.mjs                                              # dev: direct pushes, no force-push; main: PR + backend + frontend checks
 ```
 
 The `java-backend-rules` skill ships this sequence as one command, `scripts/new-backend.mjs`, pinned to a

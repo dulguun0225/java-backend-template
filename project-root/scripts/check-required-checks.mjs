@@ -11,16 +11,19 @@ const { capture, lines, main, Fail } = lib;
 main(() => {
   process.chdir(path.resolve(import.meta.dirname, '..'));
   const repo = process.env.GITHUB_REPOSITORY || capture('gh', ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']);
-  // Every branch a committed ruleset names: dev and main.
+  // Every branch named by a committed ruleset that requires status checks: main. dev.json requires none, since
+  // dev takes direct pushes; CI still runs on them.
   const branches = [];
   for (const file of fs.readdirSync('.github/rulesets').filter((f) => f.endsWith('.json')).sort()) {
-    for (const ref of JSON.parse(fs.readFileSync(path.join('.github/rulesets', file), 'utf8')).conditions.ref_name.include) {
+    const ruleset = JSON.parse(fs.readFileSync(path.join('.github/rulesets', file), 'utf8'));
+    if (!ruleset.rules.some((r) => r.type === 'required_status_checks')) continue;
+    for (const ref of ruleset.conditions.ref_name.include) {
       const m = /^refs\/heads\/(.+)$/.exec(ref);
       if (!m) throw new Fail(`.github/rulesets/${file} names ${ref}; name each branch as refs/heads/<branch>`);
       branches.push(m[1]);
     }
   }
-  if (branches.length === 0) throw new Fail('no branch named in .github/rulesets/');
+  if (branches.length === 0) throw new Fail('no ruleset in .github/rulesets/ requires status checks');
   // Job names: the two-space-indented keys under `jobs:` in the committed workflow.
   const expected = [];
   let inJobs = false;

@@ -1,5 +1,5 @@
 # The project wall. `backend` runs the template's scripts/wall.mjs inside backend/; `frontend` runs the frontend
-# gate. Both are required on dev and main (.github/rulesets/). Everything fails on its own exit code; nothing is
+# gate. Both run on every push to dev and main and are required on main (.github/rulesets/main.json). Everything fails on its own exit code; nothing is
 # advisory. Every action is pinned to a commit SHA (scripts/check-action-pins.mjs enforces it). The toolchain is
 # whatever mise.toml pins, installed by mise here exactly as on a developer machine.
 name: ci
@@ -14,7 +14,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer commit supersedes a pull request's run; every push to dev and main keeps its own completed run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:

@@ -4,11 +4,29 @@ One repo, one service, one micro-frontend.
 
 Base branch: `dev`
 
-The line above names the trunk: feature branches are cut from `dev` and merged back into it, and `build-feature`
-reads it as written, in that one form, unindented and once. Nothing is committed on `main`: it takes pull
-requests from `dev` only, merged with a merge commit, and `.github/rulesets/main.json` and the source check in
-the `backend` job hold it there. Rename a branch and change every place that names it in the same commit: this
+The line above names the trunk, and `build-feature` reads it as written, in that one form, unindented and once.
+Everyone works on `dev` and commits to it directly; `dev` refuses deletion and force-push only
+(`.github/rulesets/dev.json`), and CI runs on every push to it. When `dev` is stable, `main` takes a pull
+request from `dev` and a release is made from `main`. Nothing is committed on `main`: it takes pull requests
+from `dev` only, merged with a merge commit, and `.github/rulesets/main.json` and the source check in the
+`backend` job hold it there. Rename a branch and change every place that names it in the same commit: this
 line, the CI trigger, the source check and the rulesets.
+
+A Claude Code session a person runs in this project keeps `dev` current itself. The person may not know git,
+so the session runs these steps without asking and says nothing about git to them:
+
+1. Before changing a file, update `dev` from origin: `git pull --ff-only`.
+2. Specs are written on `dev`. The session never creates or switches to a branch for a spec.
+3. At the end of every `/speckit-specify` or `/speckit-clarify` session that changed a spec, whatever is left to
+   ask, commit that spec on `dev` and push. If the push is rejected, rebase only the session's own unpushed
+   commit onto `origin/dev` and push again.
+
+An agent of the `build-feature` or `plan-feature` workflow is not such a session: it runs only the git steps its
+prompt names.
+
+A feature's spec is fixed once its build has started: origin has the feature's build branch
+`feature/<NNN>-<name>`, or every task in its `tasks.md` is ticked. A later change to what that feature does is
+specified as a new feature with `/speckit-specify`, and that spec states the change to the earlier feature.
 
 - `backend/` is the Java service, API-only, created from `dulguun0225/java-backend-template`. Its own
   `CLAUDE.md` and `docs/GATES.md` say what is decided there; `node backend/scripts/wall.mjs` is its definition of done.
@@ -29,12 +47,14 @@ line, the CI trigger, the source check and the rulesets.
   bare id it wraps and resolving against the local requirement of that number. Neither list is shipped and
   neither is required: the first feature that needs a row is what creates the file. `--report` prints the
   coverage matrix, the spec→tasks gap and the deferred ids.
-- `.github/workflows/ci.yml` has two jobs, `backend` and `frontend`, both required on `dev` and on `main` by
-  `.github/rulesets/dev.json` and `main.json` (`node scripts/apply-ruleset.mjs` applies both). Nothing is advisory.
+- `.github/workflows/ci.yml` has two jobs, `backend` and `frontend`, run on every push to `dev` and `main` and on
+  every pull request, and required on `main` by `.github/rulesets/main.json` (`node scripts/apply-ruleset.mjs`
+  applies `dev.json` and `main.json`). Nothing is advisory.
 - `.gitlab-ci.yml` mirrors those two jobs for a GitLab remote (a docker-executor runner with `privileged = true`
   for docker:dind). Whichever forge this repo is not on, its file stays: both are deploy files
   `check-forbidden-flags.mjs` scans, and the ruleset script only means something on GitHub. On GitLab, protect
-  `dev` and `main` in the project's settings: no push to either, merge by merge request.
+  `dev` and `main` in the project's settings: `dev` allows push and no force-push; `main` allows no push and
+  merges by merge request.
 - `.specify/memory/constitution.md` is pre-filled for spec-kit. Articles I–VI restate what `backend/` already
   enforces and are not re-planned. Article VII is an optional slot that starts empty: nothing reads whether it
   is filled, nobody is owed a `/speckit.constitution` run, and it is amended by a commit with its reason when
@@ -42,7 +62,7 @@ line, the CI trigger, the source check and the rulesets.
   Context inherits them.
 - `compose.yaml` runs PostgreSQL and the service locally: `docker compose up --build`.
 - `.claude/settings.json` pins `worktree.baseRef: head`: an agent run in an isolated worktree starts from the
-  branch you are on, not from `dev`. Feature work lives on `feature/<NNN>-<name>` ahead of `dev`, so a
+  branch you are on, not from `dev`. The unattended build works on `feature/<NNN>-<name>` ahead of `dev`, so a
   worktree cut from `dev` lacks the files earlier tasks created and the agent silently works on the wrong tree.
   `.claude/worktrees/` is ignored; those worktrees are merged and removed, never committed.
 

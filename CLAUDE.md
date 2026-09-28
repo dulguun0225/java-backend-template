@@ -35,10 +35,9 @@ gate here disagree, the gate is wrong or stale: fix the gate, do not bypass it.
 
 Base branch: `main`
 
-The line above names the trunk: feature branches are cut from it and merged back into it. `build-feature`
-reads it as written, in that one form, unindented and once, and only from the `CLAUDE.md` at a repository's
-root: where this directory is `backend/` inside a project, the project's own `CLAUDE.md` states the trunk
-and this line is not read. A repository whose trunk has another name changes the name between the backticks.
+The line above names the trunk: work is committed on it directly. `build-feature` reads it as written, in
+that one form, unindented and once, and only from the `CLAUDE.md` at a repository's root: where this directory
+is `backend/` inside a project, the project's own `CLAUDE.md` states the trunk and this line is not read. A repository whose trunk has another name changes the name between the backticks.
 This template works on `main`; the services made from it work on `dev`, and `scripts/init.mjs` sets that in
 the project `CLAUDE.md` it lifts and, in a standalone service, in this line.
 
