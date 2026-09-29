@@ -28,6 +28,12 @@
          (scripts/osv-scan.mjs) fails the build on them, so the pin moves here rather than into
          osv-scanner.toml. Remove this override once the Boot BOM catches up. Set 2026-09-16. -->
     <tomcat.version>11.0.26</tomcat.version>
+    <!-- Boot 4.1.1 manages Jackson 3.1.5 and 2.21.5, both inside three jackson-databind advisories published
+         2026-09-28 (GHSA-gx83-3vf8-gh7j, GHSA-q4xh-88c3-wmh7, GHSA-wjgm-6hv5-3cvf) and fixed in 3.1.6 and 2.21.6.
+         The scan fails the build on them, so the pins move here to the newest patch on each line, 3.1.7 and
+         2.21.7 (2026-09-21). Remove both overrides once the Boot BOM catches up. Set 2026-09-29. -->
+    <jackson-bom.version>3.1.7</jackson-bom.version>
+    <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <base.package>com.example.starter</base.package>
