@@ -38,7 +38,7 @@ variables:
     - cd backend && mise trust && mise install && cd ..
   cache:
     key:
-      files: [backend/pom.xml, backend/mise.toml]
+      files: [backend/pom.xml, backend/mise.lock] # mise.lock moves with every pin in mise.toml, and with a checksum alone
     paths: [.m2/repository, .mise]
 
 backend:

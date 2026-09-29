@@ -1,5 +1,6 @@
 // The backend wall, as one command. Both the template's own CI and a project's `backend` job run exactly this,
-// so the two workflows cannot drift on what "green" means. Needs Docker (Testcontainers) and network.
+// so the two workflows cannot drift on what "green" means. Needs Docker (Testcontainers), network, and the tools
+// mise.toml pins at the checksums mise.lock records (`mise install`).
 // Usage: node scripts/wall.mjs [base-sha]   (the base sha scopes the migration lint to the change; omit for all)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,6 +13,10 @@ const step = (title) => console.log(`\n==> ${title}`);
 main(() => {
   process.chdir(path.resolve(here, '..'));
   const base = process.argv[2] ?? '';
+
+  step('mise.lock: every tool mise.toml pins, at that version, with a checksum for each platform');
+  script('check-mise-lock.mjs', '--selftest');
+  script('check-mise-lock.mjs');
 
   step('No preview features, no Java agents, in any build or deploy file');
   script('check-forbidden-flags.mjs');

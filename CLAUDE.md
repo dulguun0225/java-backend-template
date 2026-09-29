@@ -11,6 +11,8 @@ re-derive or re-design them; do not write scaffolding, lint config, architecture
 They exist, they are green, and `mvn verify` here is the definition of done.
 
 - Java 25, Spring Boot Web MVC, jOOQ against PostgreSQL 18, Flyway, Jackson, Maven. Exact pins, moved by Renovate PRs.
+  The tools `mise.toml` pins install at the checksums `mise.lock` records; a tool pin moves in `mise.toml`, then
+  `mise lock`, both committed together, and the wall refuses a lock out of date with `mise.toml` or missing a checksum.
 - Persistence goes through `Tx` (`tx.read` / `tx.write`) over generated jOOQ. No JPA, no Spring Data, no `JdbcTemplate`, no `@Transactional`.
 - Errors are RFC 9457 problems whose `code` comes from a `*ErrorCode` enum; the edge is `ApiExceptionHandler`.
 - Every `@RequestBody` binds as `BoundBody<T>`, which only `StrictJsonBodyConverter` reads: an undeclared member (`validation.unknown-field`), a member named after a path variable (`validation.identifier-in-path`) and a wrong JSON type (`validation.wrong-type`) are each an entry of one `validation.failed`, and the service calls `BoundBody.validate` before its transaction. An identifier travels in the path only; each operation binds its own request record, and an update record declares only the fields it writes. "An attempt to change X is refused" is met by X's absence from the update body, never by declaring X and comparing it. Strictness lives in that reader alone: the shared mapper keeps Boot's lenient `spring.jackson` default, because broker messages, once a handoff exists, must tolerate a member a newer producer added.

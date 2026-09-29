@@ -33,5 +33,8 @@ origin: `git pull --ff-only`.
   `dev` and `main` in the project's settings: `dev` allows push and no force-push; `main` allows no push and
   merges by merge request.
 - `compose.yaml` runs PostgreSQL and the service locally: `docker compose up --build`.
+- `mise.toml` here pins the tools for these scripts and the frontend job; `backend/mise.toml` pins the backend's.
+  Each has a `mise.lock` beside it holding every tool's checksum per platform; after moving a pin, run `mise lock`
+  in that directory. The backend wall refuses either lock when it is out of date with its `mise.toml`.
 
 Install the skills once per machine: `npx skills add dulguun0225/skills -g -a claude-code -y`.

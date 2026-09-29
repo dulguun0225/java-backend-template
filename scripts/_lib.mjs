@@ -2,6 +2,7 @@
 // only, no package.json, nothing to install; Node 22 or newer, which mise.toml pins. Every script here runs
 // the same on Linux, macOS and Windows, which is why they are Node and not bash.
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 
 const [major] = process.versions.node.split('.').map(Number);
 if (major < 22) {
@@ -69,4 +70,13 @@ export function main(fn) {
     }
     throw e;
   }
+}
+
+/** The file's text with CRLF normalised to LF. */
+export const readText = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+
+/** Print each finding and fail with a count when there is any. */
+export function report(findings, what) {
+  for (const f of findings) console.error(f);
+  if (findings.length > 0) throw new Fail(`${findings.length} ${what}`);
 }

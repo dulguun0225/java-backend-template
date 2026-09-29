@@ -44,13 +44,18 @@ agent (`npx skills add dulguun0225/skills -g -a claude-code -y`).
 `scripts/init.mjs` as above; in a repository root it renames and does nothing else, and the template's own
 `.github/workflows/ci.yml` is the service's CI.
 
-Toolchain: `mise install` reads `mise.toml` (Java 25, Maven 3.9, Node 24, osv-scanner). Docker is needed for the wall.
+Toolchain: `mise install` reads `mise.toml` (Java 25, Maven 3.9, Node 24, osv-scanner, vacuum) and installs each at
+the checksum `mise.lock` records for the platform, refusing a download that differs and a tool the lock lacks. To
+move a tool pin: edit `mise.toml`, run `mise lock` (it refreshes all five platforms), and commit both files; a
+Renovate PR that moves a mise pin carries both, since Renovate's mise manager runs `mise lock` after its edit.
+Docker is needed for the wall.
 
 ## What is in the box
 
 | Path | What |
 |---|---|
 | `pom.xml` | One Maven module; every gate wired here |
+| `mise.toml`, `mise.lock` | The toolchain: exact versions, and a url and checksum per platform, which `scripts/check-mise-lock.mjs` holds to `mise.toml` |
 | `src/main/java/.../platform/` | The platform tier: `Money`, `RoundingPolicy`, `Ids` (UUIDv7), `Tx` (the one transaction seam), the RFC 9457 error contract, the typed logging facade, `KeysetPager`. Depends on no feature; `LayeringArchTest` pins it |
 | `src/main/java/.../db/` | The generated jOOQ tree, committed, regenerated from `src/main/resources/db/migration/` by `mvn -Pcodegen generate-sources` |
 | `src/main/java/.../` | `Application`, the correlation filter, the exception handler and its error catalog, and one package per feature, `greeting` being the worked example |
@@ -73,7 +78,7 @@ fixtures, plus squawk. jOOQ regenerated twice from the migrations and diffed. Er
 OpenAPI document normalized and snapshotted, rerun under another timezone, and linted by vacuum against a committed ruleset. Error edge tests: every error
 coded, the 500 leaks nothing and its incident id resolves to one log event. Property tests on `Money`.
 Integration tests on real PostgreSQL. JaCoCo floor. Licence allowlist. SBOM plus osv-scanner with a
-committed suppression inventory. At the project root: SHA-pinned actions, a required-checks assertion
+committed suppression inventory. Every tool mise installs pinned by checksum in `mise.lock`, held to `mise.toml`. At the project root: SHA-pinned actions, a required-checks assertion
 against the forge, a frontend job that refuses ungated frontend code, Renovate as the named path for
 moving a pin.
 
@@ -91,5 +96,9 @@ snapshot needs a deliberate update and writes the new copy under `target/`. Then
 
 Pins recorded 2026-09-16: Java 25 LTS on BellSoft Liberica (the JDK Spring recommends; `mise.toml`, `ci.yml` and the
 Dockerfile name the same vendor), Spring Boot 4.1.1 (newest GA line), Tomcat overridden to 11.0.26 for
-three advisories the Boot BOM had not caught up with. The wiring was lifted from a production repo on the
+three advisories the Boot BOM had not caught up with. Every tool `mise.toml` pins is recorded in `mise.lock`
+(2026-09-29) with a checksum for Linux x64 and arm64, macOS x64 and arm64, and Windows x64: sha256 for Node,
+osv-scanner and vacuum, sha512 for Maven, SHA-1 for the Liberica JDK, the only digest BellSoft publishes. The lock
+is format 2, which mise 2026.9.7 (the CI pin), 2026.9.15 and 2026.9.16 each read (run); a new lock from 2026.9.16
+is format 3, which 2026.9.7 rejects, and `mise lock` keeps an existing lock's format. The wiring was lifted from a production repo on the
 same stack and reduced to what the skills require; every gate was run green here before the first commit.
