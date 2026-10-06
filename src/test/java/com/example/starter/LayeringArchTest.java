@@ -8,6 +8,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.Dependency;
@@ -15,19 +16,28 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.EvaluationResult;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
+import com.tngtech.archunit.lang.syntax.ArchRuleDefinition;
+import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
@@ -38,8 +48,10 @@ import org.junit.jupiter.api.Test;
  *
  * <ul>
  *   <li>no dependency cycle between modules;
- *   <li>a feature reaches another feature only through classes in that feature's {@code api} package;
- *   <li>every feature-to-feature dependency is listed in {@link #ALLOWED_FEATURE_DEPENDENCIES};
+ *   <li>a feature reaches another feature only through classes in that feature's {@code api} package, the package
+ *       itself and not a subpackage of it;
+ *   <li>every feature-to-feature dependency is listed in {@link #ALLOWED_FEATURE_DEPENDENCIES}, and every line there
+ *       is a dependency the code takes;
  *   <li>the platform tier depends on nothing in the base package but itself and the generated tree;
  *   <li>the generated tree depends on nothing in the base package outside itself;
  *   <li>a class directly in the base package depends on no feature;
@@ -49,14 +61,18 @@ import org.junit.jupiter.api.Test;
  * <p>The first three are java-backend-rules <i>The module boundary is enforced by ArchUnit, not by package
  * naming</i>. The edges into and inside the shared tier are not map lines: every feature may depend on the platform
  * tier and the generated tree, and the platform and generated-tree rules fix the shared tier's direction, the
- * platform tier into the generated tree and never back.
+ * platform tier into the generated tree and never back. The cycle rule does not see the base package, which is no
+ * module; no cycle can run through it, since it depends on no feature and neither the platform tier nor the generated tree
+ * depends on it.
  *
  * <p>Each rule is a {@code static} factory returning an {@link ArchRule} over a {@link Layout}, the base package
  * and its allowed map. Every factory is found by reflection and checked over the main code by {@link
  * #everyLayeringRuleHoldsOverTheMainCode} and over the fixture tree {@code com.example.starterfixtures.layering}
  * (test sources only, outside the main import), with its own map, by {@link
- * #everyLayeringRuleReportsTheFixtureTree}, so a factory is never one of the two without the other. The main code
- * has one feature package, so the feature rules could report nothing there; the fixture tree has six.
+ * #everyLayeringRuleReportsTheFixtureTree}, so a factory is never one of the two without the other; {@link
+ * #everyLayeringRuleIsAFactoryWithATestOfItsOwn} holds that no rule is built outside a factory and that each factory
+ * has a test asserting exactly what it reports. The main code has one feature package, so the feature rules could
+ * report nothing there; the fixture tree has six.
  */
 class LayeringArchTest {
 
@@ -64,7 +80,9 @@ class LayeringArchTest {
      * Every feature-to-feature dependency the build allows: one {@code caller -> callee} line each, both named as
      * their package under the base package. Empty: no feature depends on another. A feature that needs another
      * adds one line here, in the same commit as the code that calls it, and calls only the classes the callee
-     * puts in its {@code api} package. A feature edge is a line here, never an edit to the rules below.
+     * puts in its {@code api} package itself. A line no dependency takes fails, so it goes out in the commit that
+     * removes the last call; an edge in both directions is a cycle and fails whatever the map says. A feature edge
+     * is a line here, never an edit to the rules below.
      */
     static final String ALLOWED_FEATURE_DEPENDENCIES = """
             """;
@@ -77,14 +95,18 @@ class LayeringArchTest {
     /**
      * The fixture tree's own map. {@code orders} and {@code inventory} are allowed in both directions, so only the
      * cycle rule reports them; {@code partnerplatform} is allowed into {@code greeting} and reaches past its
-     * {@code api} package; {@code billing} is allowed into {@code greeting} and reaches only its {@code api}
-     * package, so nothing reports it. {@code feedback} has no line.
+     * {@code api} package, into its internals and into a subpackage of {@code api}; {@code billing} is allowed into
+     * {@code greeting} and reaches only its {@code api} package, so nothing reports it. {@code feedback} has no
+     * line. The last two lines are taken by no dependency: {@code greeting} does not depend on {@code billing}, and
+     * no feature {@code ghost} exists.
      */
     static final String FIXTURE_ALLOWED_FEATURE_DEPENDENCIES = """
             billing -> greeting
             partnerplatform -> greeting
             orders -> inventory
             inventory -> orders
+            greeting -> billing
+            ghost -> greeting
             """;
 
     static final Layout MAIN_LAYOUT = new Layout(BanListArchTest.BASE, ALLOWED_FEATURE_DEPENDENCIES);
@@ -104,14 +126,17 @@ class LayeringArchTest {
 
         /**
          * The map's edges as {@code caller -> callee}. A line that is not one, names the platform tier or the
-         * generated tree, or names one feature twice throws, so a malformed map fails every rule that reads it.
+         * generated tree, names the same feature on both sides, or repeats an earlier line throws, so a malformed
+         * map fails every rule that reads it. Whether each line names features that exist, and is taken by a
+         * dependency, is {@link #featureDependenciesAreInTheAllowedMap}'s to report, since it needs the classes.
          */
         Set<FeatureEdge> allowedEdges() {
-            return allowedFeatureDependencies
+            Set<FeatureEdge> edges = new HashSet<>();
+            allowedFeatureDependencies
                     .lines()
                     .map(String::strip)
                     .filter(line -> !line.isEmpty())
-                    .map(line -> {
+                    .forEach(line -> {
                         Matcher edge = MAP_LINE.matcher(line);
                         if (!edge.matches()) {
                             throw new IllegalArgumentException(
@@ -123,9 +148,11 @@ class LayeringArchTest {
                             throw new IllegalArgumentException(
                                     "the allowed feature map lists edges between two different features only: " + line);
                         }
-                        return new FeatureEdge(edge.group(1), edge.group(2));
-                    })
-                    .collect(Collectors.toUnmodifiableSet());
+                        if (!edges.add(new FeatureEdge(edge.group(1), edge.group(2)))) {
+                            throw new IllegalArgumentException("a repeated line in the allowed feature map: " + line);
+                        }
+                    });
+            return Set.copyOf(edges);
         }
 
         /** The module a class belongs to, its package's first segment under the base package; none directly in it. */
@@ -195,18 +222,81 @@ class LayeringArchTest {
     }
 
     static ArchRule featureDependenciesAreInTheAllowedMap(Layout layout) {
-        Set<FeatureEdge> allowed = layout.allowedEdges();
         return classes()
                 .that(layout.inAFeature())
-                .should(onlyHaveDependenciesWhere(DescribedPredicate.describe(
-                        "the target, when in another feature, is in a feature the allowed map lets this one depend"
-                                + " on " + allowed,
-                        (Dependency dependency) -> {
-                            FeatureEdge edge = layout.featureEdge(dependency);
-                            return edge == null || allowed.contains(edge);
-                        })))
+                .should(new MatchesTheAllowedMap(layout))
                 .because("every feature-to-feature edge is one committed line in ALLOWED_FEATURE_DEPENDENCIES, added"
-                        + " in the commit that needs it");
+                        + " in the commit that needs it and removed with the last code that takes it");
+    }
+
+    /**
+     * Reports each dependency of one feature on another that the map does not list, and, once every class is
+     * checked, each map line no dependency took, a line naming a feature package that does not exist among them.
+     * The map is parsed when the condition is built, so a malformed map fails before any class is read.
+     */
+    private static final class MatchesTheAllowedMap extends ArchCondition<JavaClass> {
+        private final Layout layout;
+        private final Set<FeatureEdge> allowed;
+        private final Set<String> features = new TreeSet<>();
+        private final Set<FeatureEdge> taken = new HashSet<>();
+
+        MatchesTheAllowedMap(Layout layout) {
+            this(layout, layout.allowedEdges());
+        }
+
+        private MatchesTheAllowedMap(Layout layout, Set<FeatureEdge> allowed) {
+            super("depend on another feature only over an edge the allowed map lists, "
+                    + allowed.stream().map(FeatureEdge::toString).sorted().toList()
+                    + ", and take every edge it lists");
+            this.layout = layout;
+            this.allowed = allowed;
+        }
+
+        @Override
+        public void init(Collection<JavaClass> featureClasses) {
+            features.clear();
+            taken.clear();
+            for (JavaClass javaClass : featureClasses) {
+                String feature = layout.featureOf(javaClass);
+                if (feature != null) {
+                    features.add(feature);
+                }
+            }
+        }
+
+        @Override
+        public void check(JavaClass javaClass, ConditionEvents events) {
+            for (Dependency dependency : javaClass.getDirectDependenciesFromSelf()) {
+                FeatureEdge edge = layout.featureEdge(dependency);
+                if (edge == null) {
+                    continue;
+                }
+                taken.add(edge);
+                if (!allowed.contains(edge)) {
+                    events.add(SimpleConditionEvent.violated(dependency, dependency.getDescription()));
+                }
+            }
+        }
+
+        @Override
+        public void finish(ConditionEvents events) {
+            allowed.stream()
+                    .filter(edge -> !taken.contains(edge))
+                    .sorted(Comparator.comparing(FeatureEdge::toString))
+                    .forEach(edge -> {
+                        List<String> unknown = Stream.of(edge.caller(), edge.callee())
+                                .filter(feature -> !features.contains(feature))
+                                .toList();
+                        events.add(SimpleConditionEvent.violated(
+                                edge,
+                                "Allowed feature map line <" + edge + "> "
+                                        + (unknown.isEmpty()
+                                                ? "is taken by no dependency; a line goes in with the code that"
+                                                        + " takes it and out with the last code that did"
+                                                : "names " + unknown + ", not among the feature packages " + features
+                                                        + " under " + layout.base())));
+                    });
+        }
     }
 
     static ArchRule platformDependsOnNoFeature(Layout layout) {
@@ -289,6 +379,35 @@ class LayeringArchTest {
     }
 
     /**
+     * The reflection tests above take any violation in the fixture tree as proof, so a rule could pass them on a
+     * violation another rule's fixture causes. This class's own bytecode is read to hold two things: an ArchUnit rule
+     * is built nowhere but in a factory reflection finds, so none is checked outside both reflection tests; and each
+     * factory is called directly by a {@code @Test} method, the test that asserts exactly what it reports. Whether
+     * that test asserts exactly is its own text's to show.
+     */
+    @Test
+    void everyLayeringRuleIsAFactoryWithATestOfItsOwn() {
+        JavaClass self =
+                new ClassFileImporter().importClasses(LayeringArchTest.class).get(LayeringArchTest.class);
+        List<String> factories = ruleFactories().stream().map(Method::getName).toList();
+        assertThat(self.getMethodCallsFromSelf().stream()
+                        .filter(call -> call.getTargetOwner().isEquivalentTo(ArchRuleDefinition.class)
+                                || call.getTargetOwner().isEquivalentTo(SlicesRuleDefinition.class))
+                        .map(call -> call.getOrigin().getName())
+                        .distinct()
+                        .toList())
+                .as("the methods that build an ArchUnit rule, each of which must be a factory")
+                .isNotEmpty()
+                .isSubsetOf(factories);
+        assertThat(factories)
+                .allSatisfy(factory -> assertThat(
+                                self.getMethod(factory, Layout.class).getCallsOfSelf())
+                        .as(factory + " is called directly by a @Test method of its own")
+                        .anySatisfy(call -> assertThat(call.getOrigin().isAnnotatedWith(Test.class))
+                                .isTrue()));
+    }
+
+    /**
      * {@code orders} and {@code inventory} call each other through their {@code api} packages, an edge the fixture
      * map allows both ways, and the cycle is still reported. So are the cycles the platform and generated-tree
      * fixtures close through the shared tier, which those rules report too. No cycle involves {@code billing},
@@ -311,35 +430,79 @@ class LayeringArchTest {
     }
 
     /**
-     * {@code PartnerPlatformCallsGreeting} calls {@code greeting}'s internal {@code GreetingService} over an edge the
-     * fixture map allows, and is reported; its feature's name contains {@code platform}, so a filter matching by
-     * substring would drop it. {@code BillingCallsGreeting} and {@code FeedbackCallsGreeting} reach only {@code
-     * greeting.api}, and the {@code orders}–{@code inventory} pair only each other's {@code api}: not reported.
+     * {@code PartnerPlatformCallsGreeting} calls {@code greeting}'s internal {@code GreetingService}, and {@code
+     * PartnerPlatformCallsGreetingApiSubpackage} a class in {@code greeting.api.dto}, a subpackage of the {@code api}
+     * package and so not its surface, each over an edge the fixture map allows: both reported. Their feature's name
+     * contains {@code platform}, so a filter matching by substring would drop them. {@code BillingCallsGreeting} and
+     * {@code FeedbackCallsGreeting} reach only {@code greeting.api}, and the {@code orders}–{@code inventory} pair
+     * only each other's {@code api}: not reported.
      */
     @Test
     void theApiRuleReportsOnlyAReferenceIntoAnotherFeaturesInternals() {
         assertThat(details(featuresReachAnotherFeatureOnlyThroughItsApi(FIXTURE_LAYOUT)))
-                .as("only the reference past greeting's api package is reported")
-                .isNotEmpty()
-                .allSatisfy(detail -> assertThat(detail)
+                .as("only the references past greeting's api package itself are reported")
+                .anySatisfy(detail -> assertThat(detail)
                         .startsWith("Method <" + FIXTURE_BASE + ".partnerplatform.PartnerPlatformCallsGreeting.")
-                        .contains("<" + FIXTURE_BASE + ".greeting.GreetingService"));
+                        .contains("<" + FIXTURE_BASE + ".greeting.GreetingService"))
+                .anySatisfy(detail -> assertThat(detail)
+                        .startsWith("Method <" + FIXTURE_BASE
+                                + ".partnerplatform.PartnerPlatformCallsGreetingApiSubpackage.")
+                        .contains("<" + FIXTURE_BASE + ".greeting.api.dto.GreetingView"))
+                .allSatisfy(detail -> assertThat(detail)
+                        .matches("(?s)Method <\\Q" + FIXTURE_BASE + ".partnerplatform.\\E"
+                                + "(PartnerPlatformCallsGreeting|PartnerPlatformCallsGreetingApiSubpackage)\\..*")
+                        .doesNotContain("<" + FIXTURE_BASE + ".greeting.api.GreetingApi"));
     }
 
     /**
      * {@code FeedbackCallsGreeting} reaches {@code greeting} only through its {@code api} package, and the fixture
      * map has no {@code feedback -> greeting} line: reported. Its feature's name contains {@code db}, so a filter
-     * matching by substring would drop it. Every allowed edge, {@code billing}'s and the {@code orders}–{@code
-     * inventory} pair included, is not reported.
+     * matching by substring would drop it. The map lines {@code greeting -> billing}, which no dependency takes, and
+     * {@code ghost -> greeting}, which names no feature, are reported. Every allowed edge the code takes, {@code
+     * billing}'s and the {@code orders}–{@code inventory} pair included, is not.
      */
     @Test
-    void theMapRuleReportsOnlyAFeatureEdgeTheMapLacks() {
+    void theMapRuleReportsAnEdgeTheMapLacksAndALineNoCodeTakes() {
         assertThat(details(featureDependenciesAreInTheAllowedMap(FIXTURE_LAYOUT)))
-                .as("only the edge with no map line is reported")
-                .isNotEmpty()
-                .allSatisfy(detail -> assertThat(detail)
+                .as("the edge with no map line and the two map lines no edge takes, nothing else")
+                .anySatisfy(detail -> assertThat(detail)
                         .startsWith("Method <" + FIXTURE_BASE + ".feedback.FeedbackCallsGreeting.")
-                        .contains("<" + FIXTURE_BASE + ".greeting.api.GreetingApi"));
+                        .contains("<" + FIXTURE_BASE + ".greeting.api.GreetingApi"))
+                .anySatisfy(detail -> assertThat(detail)
+                        .isEqualTo("Allowed feature map line <greeting -> billing> is taken by no dependency; a line"
+                                + " goes in with the code that takes it and out with the last code that did"))
+                .anySatisfy(
+                        detail -> assertThat(detail)
+                                .startsWith(
+                                        "Allowed feature map line <ghost -> greeting> names [ghost], not among the feature packages"))
+                .allSatisfy(detail -> assertThat(detail)
+                        .matches("(?s)(Method <\\Q" + FIXTURE_BASE + ".feedback.FeedbackCallsGreeting.\\E"
+                                + "|Allowed feature map line <(greeting -> billing|ghost -> greeting)> ).*"));
+    }
+
+    /**
+     * Each map below is malformed and must throw when parsed, which fails every test that builds the map rule: a
+     * line without the spaced arrow, with a third name, with a capital, a comment, a line naming the platform tier
+     * or the generated tree, a feature mapped to itself, and a repeated line. Blank lines and surrounding spaces are
+     * not malformed.
+     */
+    @Test
+    void theMapRefusesEveryLineThatIsNotOneEdgeBetweenTwoFeatures() {
+        for (String map : List.of(
+                "orders->inventory",
+                "orders -> inventory -> billing",
+                "Orders -> inventory",
+                "# orders -> inventory",
+                "orders -> platform",
+                "db -> orders",
+                "orders -> orders",
+                "orders -> inventory\norders -> inventory")) {
+            assertThatThrownBy(() -> new Layout(FIXTURE_BASE, map).allowedEdges())
+                    .as(map)
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThat(new Layout(FIXTURE_BASE, "\n   orders -> inventory  \n\n").allowedEdges())
+                .containsExactly(new FeatureEdge("orders", "inventory"));
     }
 
     /**
