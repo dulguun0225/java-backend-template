@@ -1,11 +1,11 @@
 package com.example.starterfixtures.layering.billing;
 
-import com.example.starterfixtures.layering.greeting.GreetingService;
+import com.example.starterfixtures.layering.greeting.api.GreetingApi;
 import com.example.starterfixtures.layering.platform.PlatformReadsGeneratedTree;
 
-/** Calls another feature's class: reported. Calls the platform tier: not reported. */
+/** Calls another feature through its {@code api} package over an allowed edge, and the platform tier: not reported. */
 final class BillingCallsGreeting {
-    String call(GreetingService greeting) {
-        return greeting.greet() + PlatformReadsGeneratedTree.name();
+    String call() {
+        return GreetingApi.greet() + PlatformReadsGeneratedTree.name();
     }
 }

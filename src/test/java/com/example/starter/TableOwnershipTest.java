@@ -26,8 +26,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Table ownership: one feature package owns each table, and only that owner writes it (ai-maintainer
  * <i>each table written only by the module that owns it</i>). Any feature may read any table through the
- * generated jOOQ tree, which {@link LayeringArchTest} names shared infrastructure; it still never reads through
- * another feature's classes, which {@code LayeringArchTest} forbids.
+ * generated jOOQ tree, which {@link LayeringArchTest} names shared infrastructure; it reaches another feature's
+ * classes only through that feature's {@code api} package, over an edge {@code LayeringArchTest} allows.
  *
  * <p>A method-scoped bytecode approximation, like the ban list's versioned-update and id-ordering rules: a
  * method that starts a write — a {@code DSLContext} or {@code DSL} insert, update, delete, merge, truncate,
