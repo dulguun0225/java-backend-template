@@ -59,7 +59,7 @@ Docker is needed for the wall.
 | `src/main/java/.../platform/` | The platform tier: `Money`, `RoundingPolicy`, `Ids` (UUIDv7), `Tx` (the one transaction seam), the RFC 9457 error contract, the typed logging facade, `KeysetPager`. Depends on no feature; `LayeringArchTest` pins it |
 | `src/main/java/.../db/` | The generated jOOQ tree, committed, regenerated from `src/main/resources/db/migration/` by `mvn -Pcodegen generate-sources` |
 | `src/main/java/.../` | `Application`, the correlation filter, the exception handler and its error catalog, and one package per feature, `greeting` being the worked example |
-| `src/test/java/` | Every architecture, contract, convention and integration test; `...fixtures/` holds one violating fixture per ban rule |
+| `src/test/java/` | Every architecture, contract, convention and integration test; `...fixtures/` holds one violating fixture per ban rule, and the fixture trees whose violations the layering and table-ownership rules must report |
 | `openapi/v1.json` | The committed, normalized contract the build diffs; a frontend's generated client types come from it |
 | `codegen/` | The jOOQ codegen runner, launched as a Java source-file program so it needs nothing compiled first |
 | `rulesets/openapi.yaml` | The five vacuum lints the committed document passes; `scripts/vacuum-openapi.mjs` runs them |
@@ -73,7 +73,7 @@ Docker is needed for the wall.
 
 Compile wall (Error Prone, NullAway, JSpecify; empty catch and dropped future are errors). Enforcer (Java
 pin, no dynamic versions, jqwik ceiling, banned dependencies). Spotless. An executable ban list with a
-coverage meta-test and a negative-control fixture per rule. Layering. Migration conventions with negative
+coverage meta-test and a negative-control fixture per rule. Layering, the strictest module map, with a fixture tree every layering rule must report. Migration conventions with negative
 fixtures, plus squawk. jOOQ regenerated twice from the migrations and diffed. Error catalog snapshot.
 OpenAPI document normalized and snapshotted, rerun under another timezone, and linted by vacuum against a committed ruleset. Error edge tests: every error
 coded, the 500 leaks nothing and its incident id resolves to one log event. Property tests on `Money`.
