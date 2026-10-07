@@ -48,8 +48,13 @@
             "type" : "string"
           },
           "errors" : {
-            "description" : "Present only on validation.failed",
+            "description" : "Present only on validation.failed; at most 100 entries",
             "items" : {
+              "oneOf" : [ {
+                "required" : [ "pointer" ]
+              }, {
+                "required" : [ "in", "name" ]
+              } ],
               "properties" : {
                 "code" : {
                   "description" : "A FieldCode wire string, e.g. validation.required",
@@ -59,24 +64,43 @@
                   "description" : "Caller-safe text naming what was expected, e.g. `expected boolean` on validation.wrong-type; never the value sent. Absent when the code alone says it",
                   "type" : "string"
                 },
+                "in" : {
+                  "description" : "Where a path variable, query parameter or header travels, as OpenAPI names it. With name; absent when pointer names the input",
+                  "enum" : [ "header", "path", "query" ],
+                  "type" : "string"
+                },
+                "name" : {
+                  "description" : "The parameter's name as this document declares it, a header's included, whatever spelling was sent; for an undeclared query parameter, the name sent",
+                  "type" : "string"
+                },
                 "params" : {
                   "additionalProperties" : true,
-                  "description" : "What is allowed, by name: exactly the params the code declares in the error catalog, e.g. {\"max\": 100} on validation.too-long, {\"expected\": \"boolean\"} on validation.wrong-type. Absent when the code declares none. Never the value sent",
+                  "description" : "What is allowed, by name: exactly the params the code declares in the error catalog, e.g. {\"max\": 100} on validation.too-long, {\"expected\": \"uuid\"} on validation.invalid-value, {\"allowed\": [\"name\"]} on validation.unknown-field. Absent when the code declares none. Never the value sent",
                   "type" : "object"
                 },
                 "pointer" : {
-                  "description" : "RFC 6901 JSON pointer, e.g. /name",
+                  "description" : "RFC 6901 JSON pointer to a request-body member, e.g. /name; \"\" for the whole body. Absent when in and name name the input",
                   "type" : "string"
                 }
               },
-              "required" : [ "code", "pointer" ],
+              "required" : [ "code" ],
               "type" : "object"
             },
             "type" : "array"
           },
+          "errorsOmitted" : {
+            "description" : "On validation.failed: the failures found past the 100th and not listed. Absent when every one is listed",
+            "format" : "int64",
+            "type" : "integer"
+          },
           "incidentId" : {
             "description" : "Present only on platform.internal (500)",
             "type" : "string"
+          },
+          "params" : {
+            "additionalProperties" : true,
+            "description" : "What is allowed, by name, for a code that declares params in the error catalog: {\"max\": 65536} on request.too-large, the body limit in bytes. Absent when the code declares none",
+            "type" : "object"
           },
           "status" : {
             "format" : "int32",
@@ -132,7 +156,17 @@
                 }
               }
             },
-            "description" : "validation.failed (a field rule, an undeclared member, a wrong JSON type), validation.malformed-body"
+            "description" : "validation.failed (a field rule; a body member undeclared, of the wrong JSON type, not parsing or given twice; a query parameter undeclared or given twice), validation.malformed-body"
+          },
+          "413" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "request.too-large: the body is over the limit, which params.max gives in bytes"
           }
         },
         "summary" : "Create one greeting",
@@ -161,6 +195,16 @@
               }
             },
             "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "validation.failed: a query parameter not declared (validation.unknown-field) or given twice (validation.duplicate-member), a parameter absent (validation.required), not parsing (validation.invalid-value) or outside its values (validation.unknown-value)"
           },
           "404" : {
             "content" : {

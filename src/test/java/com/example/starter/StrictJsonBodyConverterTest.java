@@ -8,11 +8,16 @@ import com.example.starter.platform.StringDecimalDeserializer;
 import com.example.starter.platform.error.BoundBody;
 import com.example.starter.platform.error.FieldError;
 import com.example.starter.platform.error.ValidationFailed;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -30,8 +35,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The strict body reader in isolation: which member each binding failure names (an RFC 6901 pointer, escaped),
- * which code and params it carries, what {@code detail} says, that a member given twice is refused at any depth
- * with neither value bound, and that nothing the caller sent is echoed. The mapper is
+ * which code and params it carries ({@code allowed} the members declared, sorted), what {@code detail} says, that a
+ * member given twice is refused at any depth with neither value bound, that a UUID is read in its 36-character form
+ * only, that at most 100 entries are recorded and the rest counted, that the body limit holds with a declared length
+ * and without one, and that nothing the caller sent is echoed. The mapper is
  * configured as Boot configures it — unknown properties not failing — so the reader is proven not to depend on
  * that setting.
  */
@@ -39,11 +46,25 @@ class StrictJsonBodyConverterTest {
 
     private static final String SENTINEL = "SENTINEL-7f3a";
 
-    private final StrictJsonBodyConverter converter = new StrictJsonBodyConverter(JsonMapper.builder()
+    private static final JsonMapper MAPPER = JsonMapper.builder()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-            .build());
+            .build();
+
+    private final StrictJsonBodyConverter converter = new StrictJsonBodyConverter(MAPPER, 65_536);
+
+    /** The members {@link Sample} declares, sorted: what its undeclared members' refusals allow. */
+    private static final List<String> SAMPLE_MEMBERS =
+            List.of("big", "colour", "count", "flag", "inner", "labels", "name", "rate", "ref", "small", "tags");
+
+    private static final List<String> INNER_MEMBERS = List.of("a");
 
     record Inner(@Nullable String a) {}
+
+    enum Colour {
+        RED,
+        @JsonProperty("sky-blue")
+        BLUE
+    }
 
     record Sample(
             @Nullable String name,
@@ -55,7 +76,11 @@ class StrictJsonBodyConverterTest {
 
             @Nullable Inner inner,
             @Nullable List<String> tags,
-            @Nullable Map<String, String> labels) {}
+            @Nullable Map<String, String> labels,
+            @Nullable UUID ref,
+            @Nullable Integer small,
+            @Nullable Long big,
+            @Nullable Colour colour) {}
 
     @AfterEach
     void clearRequest() {
@@ -79,13 +104,13 @@ class StrictJsonBodyConverterTest {
     void aCleanBodyBindsWithNoFailure() {
         Sample sample = value(read("{\"name\":\"X\",\"flag\":true,\"count\":3,\"rate\":\"2.5\",\"tags\":[\"t\"]}"));
 
-        assertThat(sample).isEqualTo(new Sample("X", true, 3, "2.5", null, List.of("t"), null));
+        assertThat(sample).isEqualTo(new Sample("X", true, 3, "2.5", null, List.of("t"), null, null, null, null, null));
     }
 
     @Test
     void everyUnknownMemberIsNamedAtItsPointerNestedOnesIncluded() {
         assertThat(failures("{\"name\":\"X\",\"foo\":1,\"bar\":{\"x\":[1]},\"inner\":{\"a\":\"b\",\"zz\":1}}"))
-                .containsExactly(unknown("/bar"), unknown("/foo"), unknown("/inner/zz"));
+                .containsExactly(unknown("/bar"), unknown("/foo"), unknownInInner("/inner/zz"));
     }
 
     /**
@@ -99,7 +124,7 @@ class StrictJsonBodyConverterTest {
         assertThat(failures("{\"foo\":{\"x\":1},\"bar\":{\"y\":2},\"baz\":[[1]]}"))
                 .containsExactly(unknown("/bar"), unknown("/baz"), unknown("/foo"));
         assertThat(failures("{\"inner\":{\"a\":\"x\",\"q\":[2],\"r\":{\"s\":1},\"t\":1},\"name\":\"n\"}"))
-                .containsExactly(unknown("/inner/q"), unknown("/inner/r"), unknown("/inner/t"));
+                .containsExactly(unknownInInner("/inner/q"), unknownInInner("/inner/r"), unknownInInner("/inner/t"));
     }
 
     @Test
@@ -188,19 +213,126 @@ class StrictJsonBodyConverterTest {
                                 "/code", "validation.identifier-in-path", new ApiFieldCode.IdentifierInPath(), null),
                         new FieldError(
                                 "/date", "validation.identifier-in-path", new ApiFieldCode.IdentifierInPath(), null),
-                        unknown("/inner/code"));
+                        unknownInInner("/inner/code"));
     }
 
     @Test
     void aValueOfTheWrongJsonTypeIsNamedWithTheTypeExpected() {
         assertThat(failures("{\"flag\":\"yes\"}")).containsExactly(wrongType("/flag", "boolean"));
         assertThat(failures("{\"flag\":[true]}")).containsExactly(wrongType("/flag", "boolean"));
-        assertThat(failures("{\"count\":\"abc\"}")).containsExactly(wrongType("/count", "integer"));
-        assertThat(failures("{\"count\":true}")).containsExactly(wrongType("/count", "integer"));
+        assertThat(failures("{\"count\":\"abc\"}")).containsExactly(wrongType("/count", "number"));
+        assertThat(failures("{\"count\":true}")).containsExactly(wrongType("/count", "number"));
+        assertThat(failures("{\"small\":\"abc\"}")).containsExactly(wrongType("/small", "integer"));
+        assertThat(failures("{\"ref\":5}")).containsExactly(wrongType("/ref", "string"));
+        assertThat(failures("{\"ref\":{\"a\":1}}")).containsExactly(wrongType("/ref", "string"));
         assertThat(failures("{\"name\":{\"a\":1}}")).containsExactly(wrongType("/name", "string"));
         assertThat(failures("{\"name\":[1]}")).containsExactly(wrongType("/name", "string"));
         assertThat(failures("{\"tags\":\"t\"}")).containsExactly(wrongType("/tags", "array"));
         assertThat(failures("{\"inner\":\"x\"}")).containsExactly(wrongType("/inner", "object"));
+    }
+
+    /**
+     * A UUID is RFC 9562's 36-character form, either case, untrimmed: Jackson's own reader takes a 24-character
+     * base64 string, and {@code UUID.fromString} takes {@code 1-1-1-1-1}.
+     */
+    @Test
+    void aUuidIsReadInItsThirtySixCharacterFormOnly() {
+        UUID id = UUID.fromString("0190f0c4-7d2e-7b3a-9c4d-5e6f7a8b9c0d");
+        assertThat(value(read("{\"ref\":\"" + id + "\"}")).ref()).isEqualTo(id);
+        assertThat(value(read("{\"ref\":\"" + id.toString().toUpperCase(java.util.Locale.ROOT) + "\"}"))
+                        .ref())
+                .isEqualTo(id);
+        for (String text : List.of(
+                "1-1-1-1-1",
+                "AZDwxH0uezqcTV5veouckA==",
+                " " + id,
+                id + " ",
+                id.toString().replace("-", ""),
+                "{" + id + "}",
+                "urn:uuid:" + id,
+                "")) {
+            assertThat(failures("{\"ref\":\"" + text + "\"}")).as(text).containsExactly(invalidValue("/ref", "uuid"));
+        }
+    }
+
+    /**
+     * Jackson raises an integer past its type's range as a stream-read error, which ends the read: it names the member
+     * and its format, and an undeclared member Jackson holds until the object closes is not named with it.
+     */
+    @Test
+    void anIntegerPastItsRangeIsAnInvalidValueNamingItsFormat() {
+        assertThat(failures("{\"small\":3000000000}")).containsExactly(invalidValue("/small", "int32"));
+        assertThat(failures("{\"name\":\"n\",\"foo\":1,\"big\":99999999999999999999}"))
+                .containsExactly(invalidValue("/big", "int64"));
+        assertThat(value(read("{\"small\":2147483647,\"big\":-9223372036854775808}")))
+                .extracting(Sample::small, Sample::big)
+                .containsExactly(Integer.MAX_VALUE, Long.MIN_VALUE);
+    }
+
+    /** The values as the mapper writes them, a renamed constant included, sorted. */
+    @Test
+    void aValueOutsideItsEnumerationIsAnUnknownValueListingTheValues() {
+        assertThat(failures("{\"colour\":\"PURPLE\"}"))
+                .containsExactly(FieldError.of("/colour", new ApiFieldCode.UnknownValue(List.of("RED", "sky-blue"))));
+        assertThat(value(read("{\"colour\":\"sky-blue\"}")).colour()).isEqualTo(Colour.BLUE);
+    }
+
+    /** One entry per undeclared member would let a body buy a response many times its size. */
+    @Test
+    void aPassRecordsAtMostOneHundredEntriesAndCountsTheRest() {
+        String undeclared = IntStream.range(0, 101)
+                .mapToObj(i -> "\"m" + (1000 + i) + "\":0")
+                .collect(Collectors.joining(",", "{", "}"));
+        ValidationFailed many = refused(undeclared);
+        assertThat(many.errors())
+                .hasSize(100)
+                .allSatisfy(error -> assertThat(error.code()).isEqualTo("validation.unknown-field"));
+        assertThat(many.errors().getFirst()).isEqualTo(unknown("/m1000"));
+        assertThat(many.omitted()).isEqualTo(1);
+
+        String repeated = IntStream.range(0, 101)
+                .mapToObj(i -> "\"k" + (1000 + i) + "\":\"1\",\"k" + (1000 + i) + "\":\"2\"")
+                .collect(Collectors.joining(",", "{\"labels\":{", "}}"));
+        ValidationFailed twice = refused(repeated);
+        assertThat(twice.errors())
+                .hasSize(100)
+                .allSatisfy(error -> assertThat(error.code()).isEqualTo("validation.duplicate-member"));
+        assertThat(twice.omitted()).isEqualTo(1);
+
+        String hundred = IntStream.range(0, 100)
+                .mapToObj(i -> "\"m" + (1000 + i) + "\":0")
+                .collect(Collectors.joining(",", "{", "}"));
+        assertThat(refused(hundred).omitted()).isZero();
+    }
+
+    /**
+     * A body of exactly the limit is read and one byte more is refused naming the limit, with a declared length and
+     * without one; a declared length over the limit is refused before the body is read at all.
+     */
+    @Test
+    void theBodyLimitHoldsWithADeclaredLengthAndWithoutOne() throws java.io.IOException {
+        int limit = 64;
+        StrictJsonBodyConverter limited = new StrictJsonBodyConverter(MAPPER, limit);
+        String exactly = "{\"name\":\"" + "x".repeat(limit - 11) + "\"}";
+        assertThat(exactly).hasSize(limit);
+        for (boolean declared : List.of(true, false)) {
+            assertThat(value(read(limited, message(exactly, declared))).name()).hasSize(limit - 11);
+            RequestBodyTooLarge refused = catchThrowableOfType(
+                    RequestBodyTooLarge.class, () -> read(limited, message(exactly + " ", declared)));
+            assertThat(refused).as("declared length " + declared).isNotNull();
+            assertThat(refused.max()).isEqualTo(limit);
+        }
+        MockHttpInputMessage unread = new MockHttpInputMessage(new InputStream() {
+            @Override
+            public int read() {
+                throw new AssertionError("a body declared over the limit is never read");
+            }
+        });
+        unread.getHeaders().setContentLength(limit + 1L);
+        assertThat(catchThrowableOfType(RequestBodyTooLarge.class, () -> read(limited, unread)))
+                .isNotNull();
+        assertThat(catchThrowableOfType(IllegalArgumentException.class, () -> new StrictJsonBodyConverter(MAPPER, 0)))
+                .isNotNull();
     }
 
     @Test
@@ -261,17 +393,34 @@ class StrictJsonBodyConverterTest {
     }
 
     private BoundBody<Sample> read(String json) {
+        return read(converter, new MockHttpInputMessage(json.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static BoundBody<Sample> read(StrictJsonBodyConverter reader, MockHttpInputMessage message) {
         try {
-            Object read = converter.read(
-                    ResolvableType.forClassWithGenerics(BoundBody.class, Sample.class),
-                    new MockHttpInputMessage(json.getBytes(StandardCharsets.UTF_8)),
-                    null);
+            Object read =
+                    reader.read(ResolvableType.forClassWithGenerics(BoundBody.class, Sample.class), message, null);
             @SuppressWarnings("unchecked")
             BoundBody<Sample> body = (BoundBody<Sample>) read;
             return body;
         } catch (java.io.IOException e) {
             throw new java.io.UncheckedIOException(e);
         }
+    }
+
+    private static MockHttpInputMessage message(String json, boolean declaredLength) {
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+        MockHttpInputMessage message = new MockHttpInputMessage(bytes);
+        if (declaredLength) {
+            message.getHeaders().setContentLength(bytes.length);
+        }
+        return message;
+    }
+
+    private ValidationFailed refused(String json) {
+        ValidationFailed failed = catchThrowableOfType(ValidationFailed.class, () -> value(read(json)));
+        assertThat(failed).as(json).isNotNull();
+        return failed;
     }
 
     private static Sample value(BoundBody<Sample> body) {
@@ -312,7 +461,16 @@ class StrictJsonBodyConverterTest {
     }
 
     private static FieldError unknown(String pointer) {
-        return new FieldError(pointer, "validation.unknown-field", new ApiFieldCode.UnknownField(), null);
+        return new FieldError(pointer, "validation.unknown-field", new ApiFieldCode.UnknownField(SAMPLE_MEMBERS), null);
+    }
+
+    private static FieldError unknownInInner(String pointer) {
+        return new FieldError(pointer, "validation.unknown-field", new ApiFieldCode.UnknownField(INNER_MEMBERS), null);
+    }
+
+    private static FieldError invalidValue(String pointer, String expected) {
+        return new FieldError(
+                pointer, "validation.invalid-value", new ApiFieldCode.InvalidValue(expected), "expected " + expected);
     }
 
     private static FieldError duplicate(String pointer) {

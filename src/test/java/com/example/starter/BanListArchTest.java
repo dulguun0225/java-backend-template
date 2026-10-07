@@ -9,8 +9,8 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.starter.platform.error.FieldError;
-import com.example.starter.platform.error.FieldParams;
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.AccessTarget;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaFieldAccess;
@@ -346,16 +346,16 @@ class BanListArchTest {
                     + "an undeclared member is dropped silently and a wrong-typed value names no member");
 
     /**
-     * A field-level error is built by {@code FieldError.of}, which takes its wire code from the typed params record
-     * the throw site passes, so a code never leaves without its params. The canonical constructor takes the code as
-     * a string beside the record; it stays public, as every record constructor must, for test oracles pinning a
-     * literal, and main code never calls it.
+     * A field-level error is built by {@code FieldError.of} or {@code FieldError.ofParameter}, which take its wire
+     * code from the typed params record the throw site passes, so a code never leaves without its params. Every
+     * constructor takes the code as a string beside the record; they stay public, as a record's canonical
+     * constructor must, for test oracles pinning a literal, and main code calls none of them.
      */
     static final ArchRule FIELD_ERRORS_BUILT_FROM_THEIR_PARAMS = noClasses()
             .that()
             .doNotHaveFullyQualifiedName(FieldError.class.getName())
             .should()
-            .callConstructor(FieldError.class, String.class, String.class, FieldParams.class, String.class)
+            .callConstructorWhere(target(AccessTarget.Predicates.declaredIn(FieldError.class)))
             .because("a field error built by hand pairs a wire-code string with a params record nothing checks at"
                     + " compile time; FieldError.of takes the code from the record");
 

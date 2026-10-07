@@ -8,6 +8,11 @@ spring:
     virtual:
       # One virtual thread per task, never pooled. ConfigDefaultsTest pins this.
       enabled: true
+  servlet:
+    multipart:
+      # Off: a multipart request is 415, and the strict body reader's limit is the one 413 source, so every 413
+      # carries the limit as `max`. ConfigDefaultsTest pins this.
+      enabled: false
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -41,3 +46,10 @@ management:
 springdoc:
   api-docs:
     version: openapi_3_1
+
+# The largest request body the strict reader reads, a Spring DataSize (64KB is 65,536 bytes); a larger one is 413
+# request.too-large with this limit as `max`. A per-project parameter: size it from the largest legal request times
+# six, JSON's worst escaping of one byte. ConfigDefaultsTest pins the default.
+api:
+  request-body:
+    max-size: ${API_REQUEST_BODY_MAX_SIZE:64KB}

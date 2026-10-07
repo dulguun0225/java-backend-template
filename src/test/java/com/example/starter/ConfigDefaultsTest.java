@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
+import org.springframework.util.unit.DataSize;
 import org.yaml.snakeyaml.Yaml;
 
 /**
@@ -38,6 +39,25 @@ class ConfigDefaultsTest {
                 .as("the pool is the DB semaphore: small, fixed, committed")
                 .isInstanceOf(Integer.class);
         assertThat((Integer) poolSize).isBetween(2, 32);
+        assertThat(at(root, "spring", "servlet", "multipart", "enabled"))
+                .as("multipart off: a multipart request is 415, and the body limit is the one 413 source")
+                .isEqualTo(false);
+    }
+
+    /**
+     * The request-body limit defaults to 64KB, 65,536 bytes, the same number as rust-backend-template's, unless the
+     * environment sets {@code API_REQUEST_BODY_MAX_SIZE}.
+     */
+    @Test
+    void theRequestBodyLimitDefaultsTo65536Bytes() throws Exception {
+        Map<String, Object> root;
+        try (InputStream in = ConfigDefaultsTest.class.getResourceAsStream("/application.yaml")) {
+            root = new Yaml().load(in);
+        }
+        Object value = at(root, "api", "request-body", "max-size");
+        assertThat(value).isEqualTo("${API_REQUEST_BODY_MAX_SIZE:64KB}");
+        String fallback = String.valueOf(value).replaceAll("^\\$\\{[A-Z_]+:(.*)}$", "$1");
+        assertThat(DataSize.parse(fallback).toBytes()).isEqualTo(65_536);
     }
 
     @SuppressWarnings("unchecked")

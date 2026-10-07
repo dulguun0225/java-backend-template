@@ -76,6 +76,29 @@ class FieldErrorTest {
                         + "\"detail\":\"expected at most 3\"}");
     }
 
+    /** A parameter is named by OpenAPI's location and name, a body member by its pointer, and never both. */
+    @Test
+    void aParameterIsNamedByItsLocationAndNameAndNeverAlsoByAPointer() {
+        assertThat(JSON.writeValueAsString(
+                        FieldError.ofParameter(FieldError.In.PATH, "id", new TooLong(3), "expected at most 3")))
+                .isEqualTo("{\"in\":\"path\",\"name\":\"id\",\"code\":\"validation.too-long\","
+                        + "\"params\":{\"max\":3},\"detail\":\"expected at most 3\"}");
+        assertThat(JSON.writeValueAsString(FieldError.ofParameter(FieldError.In.HEADER, "X-Id", new Required())))
+                .isEqualTo("{\"in\":\"header\",\"name\":\"X-Id\",\"code\":\"validation.required\"}");
+        assertThat(FieldError.ofParameter(FieldError.In.QUERY, "q", new Required()))
+                .isEqualTo(new FieldError(null, FieldError.In.QUERY, "q", "validation.required", new Required(), null));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() ->
+                        new FieldError("/q", FieldError.In.QUERY, "q", "validation.required", new Required(), null));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new FieldError(null, null, null, "validation.required", new Required(), null));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() ->
+                        new FieldError(null, FieldError.In.QUERY, null, "validation.required", new Required(), null));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new FieldError(null, null, "q", "validation.required", new Required(), null));
+    }
+
     @Test
     void aCodeIsNeverPairedWithAnotherCodesParams() {
         assertThatIllegalArgumentException()

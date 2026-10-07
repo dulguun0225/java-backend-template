@@ -2,13 +2,18 @@ package com.example.starter;
 
 import com.example.starter.platform.DecimalNotStringException;
 import com.example.starter.platform.Ids;
+import com.example.starter.platform.error.FieldError;
+import com.example.starter.platform.error.ProblemParams;
 import com.example.starter.platform.error.Rejected;
 import com.example.starter.platform.error.ValidationFailed;
+import com.example.starter.platform.error.WireError;
 import com.example.starter.platform.observability.Log;
 import com.example.starter.platform.observability.LogContext;
 import com.example.starter.platform.observability.LogEvent;
+import java.util.List;
 import java.util.Map;
 import org.jspecify.annotations.Nullable;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpHeaders;
@@ -19,6 +24,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MissingPathVariableException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -67,37 +76,120 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     /**
      * A path variable, query parameter or header whose text does not convert to its declared type — {@code abc}
-     * where {@code /api/greetings/{id}} expects a UUID. {@code validation.bad-request}, with a {@code detail}
-     * naming the input and the type it must be. Spring's own {@code detail} quotes the value sent, so it is
-     * replaced, never extended: nothing here is built from the value. The input is named in prose only, since a
-     * {@code validation.failed} entry names a body member by its JSON pointer and a request input outside the body
-     * has no pointer; {@code docs/GATES.md} records that as a named gap.
+     * where {@code /api/greetings/{id}} expects a UUID: a {@code validation.failed} entry at its {@code in} and
+     * {@code name}, the name the handler declares. An enumeration's value outside its set is
+     * {@code validation.unknown-value} with the values {@code allowed}; any other text, empty and blank included,
+     * is {@code validation.invalid-value} with the format or type {@code expected}. Spring's own {@code detail}
+     * quotes the value sent; nothing here is built from it. A mismatch on no handler parameter is
+     * {@code validation.bad-request}.
      */
     @Override
     protected ResponseEntity<Object> handleTypeMismatch(
             TypeMismatchException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        if (ex instanceof MethodArgumentTypeMismatchException mismatch) {
+            FieldError.In in = locationOf(mismatch.getParameter());
+            if (in != null) {
+                Class<?> required = mismatch.getRequiredType();
+                Class<?> type =
+                        required != null ? required : mismatch.getParameter().getNestedParameterType();
+                return handleValidationFailed(new ValidationFailed(List.of(refused(in, mismatch.getName(), type))));
+            }
+        }
         ProblemDetail body = ProblemDetail.forStatus(ApiErrorCode.BAD_REQUEST.status());
         body.setProperty("code", ApiErrorCode.BAD_REQUEST.wire());
-        body.setDetail(typeMismatchDetail(ex));
+        body.setDetail("A request parameter has a value of the wrong type.");
         return ResponseEntity.status(ApiErrorCode.BAD_REQUEST.status()).body(body);
     }
 
-    /** The input's kind and name, from the handler's declaration, and the simple name of the type it must be. */
-    static String typeMismatchDetail(TypeMismatchException ex) {
-        String input = "A request parameter";
-        if (ex instanceof MethodArgumentTypeMismatchException mismatch) {
-            MethodParameter parameter = mismatch.getParameter();
-            String kind = parameter.hasParameterAnnotation(PathVariable.class)
-                    ? "path variable"
-                    : parameter.hasParameterAnnotation(RequestParam.class)
-                            ? "query parameter"
-                            : parameter.hasParameterAnnotation(RequestHeader.class) ? "header" : "parameter";
-            input = "The " + kind + " '" + mismatch.getName() + "'";
+    /**
+     * A required query parameter whose name is not in the request: {@code validation.required}. One whose text
+     * Spring's own conversion turns into no value — an empty {@code Boolean} — is
+     * {@code validation.invalid-value}: the name was sent.
+     */
+    @Override
+    protected ResponseEntity<Object> handleMissingServletRequestParameter(
+            MissingServletRequestParameterException ex,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request) {
+        return missing(
+                FieldError.In.QUERY, ex.getParameterName(), ex.getMethodParameter(), ex.isMissingAfterConversion());
+    }
+
+    /**
+     * A required header whose name is not in the request: {@code validation.required} at the name the handler
+     * declares. As for a query parameter, one sent and converted to no value is {@code validation.invalid-value}.
+     * Every other binding failure keeps Spring's handling, coded {@code validation.bad-request}.
+     */
+    @Override
+    protected @Nullable ResponseEntity<Object> handleServletRequestBindingException(
+            ServletRequestBindingException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        if (ex instanceof MissingRequestHeaderException header) {
+            return missing(
+                    FieldError.In.HEADER,
+                    header.getHeaderName(),
+                    header.getParameter(),
+                    header.isMissingAfterConversion());
         }
-        Class<?> required = ex.getRequiredType();
-        return required == null
-                ? input + " has a value of the wrong type."
-                : input + " must be of type " + required.getSimpleName() + ".";
+        return super.handleServletRequestBindingException(ex, headers, status, request);
+    }
+
+    /**
+     * A path variable sent and converted to no value is {@code validation.invalid-value}. One the route does not
+     * carry at all is a handler declaring a variable its mapping lacks, a server fault, and stays Spring's 500.
+     */
+    @Override
+    protected @Nullable ResponseEntity<Object> handleMissingPathVariable(
+            MissingPathVariableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        if (ex.isMissingAfterConversion()) {
+            return missing(FieldError.In.PATH, ex.getVariableName(), ex.getParameter(), true);
+        }
+        return super.handleMissingPathVariable(ex, headers, status, request);
+    }
+
+    private ResponseEntity<Object> missing(
+            FieldError.In in, String name, @Nullable MethodParameter parameter, boolean sent) {
+        FieldError error = sent
+                ? refused(in, name, parameter == null ? String.class : parameter.getNestedParameterType())
+                : FieldError.ofParameter(in, name, new ApiFieldCode.Required());
+        return handleValidationFailed(new ValidationFailed(List.of(error)));
+    }
+
+    /** The entry for a text that is no value of {@code type}: outside its set, or not parsing as it. */
+    private static FieldError refused(FieldError.In in, String name, Class<?> type) {
+        if (type.isEnum()) {
+            return FieldError.ofParameter(in, name, new ApiFieldCode.UnknownValue(InputTypes.enumValues(type)));
+        }
+        String expected = InputTypes.expected(type);
+        return FieldError.ofParameter(in, name, new ApiFieldCode.InvalidValue(expected), "expected " + expected);
+    }
+
+    /**
+     * Where a handler parameter is read from: its annotation, or the query for an unannotated simple value, which
+     * Spring binds as a query parameter of the same name; {@code null} for any other parameter.
+     */
+    private static FieldError.@Nullable In locationOf(MethodParameter parameter) {
+        if (parameter.hasParameterAnnotation(PathVariable.class)) {
+            return FieldError.In.PATH;
+        }
+        if (parameter.hasParameterAnnotation(RequestHeader.class)) {
+            return FieldError.In.HEADER;
+        }
+        if (parameter.hasParameterAnnotation(RequestParam.class)
+                || (parameter.getParameterAnnotations().length == 0
+                        && BeanUtils.isSimpleProperty(parameter.getNestedParameterType()))) {
+            return FieldError.In.QUERY;
+        }
+        return null;
+    }
+
+    /**
+     * A request body over the configured limit: 413 {@code request.too-large}, the limit in bytes as
+     * {@code max}. The only 413 the service sends; any other is the catch-all 500.
+     */
+    @ExceptionHandler(RequestBodyTooLarge.class)
+    ResponseEntity<Object> handleBodyTooLarge(RequestBodyTooLarge ex) {
+        return problem(new ApiErrorCode.TooLarge(ex.max()), "The request body must be at most " + ex.max() + " bytes.");
     }
 
     @ExceptionHandler(DecimalNotStringException.class)
@@ -105,12 +197,18 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(ApiErrorCode.NUMBER_NOT_STRING);
     }
 
-    /** A field-validation rejection: 400 {@code validation.failed} with the {@code errors} array. */
+    /**
+     * A field-validation rejection: 400 {@code validation.failed} with the {@code errors} array, and
+     * {@code errorsOmitted}, the failures found past {@link ValidationFailed#MAX_ERRORS}, when there are any.
+     */
     @ExceptionHandler(ValidationFailed.class)
     ResponseEntity<Object> handleValidationFailed(ValidationFailed ex) {
         ProblemDetail body = ProblemDetail.forStatus(ApiErrorCode.VALIDATION_FAILED.status());
         body.setProperty("code", ApiErrorCode.VALIDATION_FAILED.wire());
         body.setProperty("errors", ex.errors());
+        if (ex.omitted() > 0) {
+            body.setProperty("errorsOmitted", ex.omitted());
+        }
         return ResponseEntity.status(ApiErrorCode.VALIDATION_FAILED.status()).body(body);
     }
 
@@ -128,7 +226,8 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      * {@link LogEvent#REQUEST_UNHANDLED_ERROR} with a joinable incident id, like the catch-all 500. A client-error
      * status no catalog code carries — a {@code ResponseStatusException(CONFLICT)} thrown by a feature — is a
      * missing catalog entry, a server fault: it is answered and logged as the catch-all 500, never sent under a
-     * code whose catalog status is another one.
+     * code whose catalog status is another one. A 413 from anywhere but the body limit is one of those: it could
+     * not say the {@code max} every {@code request.too-large} carries.
      */
     @Override
     protected @Nullable ResponseEntity<Object> handleExceptionInternal(
@@ -198,9 +297,6 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         if (status.isSameCodeAs(HttpStatus.NOT_ACCEPTABLE)) {
             return ApiErrorCode.NOT_ACCEPTABLE;
         }
-        if (status.isSameCodeAs(HttpStatus.CONTENT_TOO_LARGE)) {
-            return ApiErrorCode.TOO_LARGE;
-        }
         if (status.isSameCodeAs(HttpStatus.SERVICE_UNAVAILABLE)) {
             return ApiErrorCode.SERVICE_UNAVAILABLE;
         }
@@ -236,6 +332,16 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private static ResponseEntity<Object> problem(ApiErrorCode code) {
         ProblemDetail body = ProblemDetail.forStatus(code.status());
         body.setProperty("code", code.wire());
+        return ResponseEntity.status(code.status()).body(body);
+    }
+
+    /** A problem whose code carries params: the code from the record, the record as {@code params}. */
+    private static ResponseEntity<Object> problem(ProblemParams params, String detail) {
+        WireError code = params.code();
+        ProblemDetail body = ProblemDetail.forStatus(code.status());
+        body.setProperty("code", code.wire());
+        body.setProperty("params", params);
+        body.setDetail(detail);
         return ResponseEntity.status(code.status()).body(body);
     }
 

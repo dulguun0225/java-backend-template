@@ -45,7 +45,8 @@ class GreetingController {
         @ApiResponse(responseCode = "201", description = "Created. `Location` is the new greeting's URL."),
         @ApiResponse(
                 responseCode = "400",
-                description = "validation.failed (a field rule, an undeclared member, a wrong JSON type),"
+                description = "validation.failed (a field rule; a body member undeclared, of the wrong JSON type,"
+                        + " not parsing or given twice; a query parameter undeclared or given twice),"
                         + " validation.malformed-body",
                 content = @Content(mediaType = PROBLEM_JSON, schema = @Schema(ref = "#/components/schemas/Problem")))
     })

@@ -1,6 +1,7 @@
 # The document lints java-backend-api names under *vacuum lints*: no offset or page parameter, no `PATCH` in the
 # document, `limit` declares a maximum, every error response uses the problem schema, a temporal property's
-# name matches its format, and every request-body schema is closed. Spectral-compatible syntax, run by vacuum (pinned in mise.toml) from
+# name matches its format, every request-body schema is closed, and every operation declares its 400 and every
+# body-taking one its 413. Spectral-compatible syntax, run by vacuum (pinned in mise.toml) from
 # scripts/vacuum-openapi.mjs, which wall.mjs calls. docs/GATES.md carries the row; nothing here is advisory,
 # so every rule is `severity: error` and the exit code is the gate.
 #
@@ -84,3 +85,19 @@ rules:
         function: defined
       - field: additionalProperties
         function: falsy
+
+  every-operation-declares-400:
+    description: "Every operation declares its 400 validation.failed: any one can refuse a query parameter it does not declare, and one with a parameter can refuse that parameter."
+    given: "$.paths[*]['get','put','post','delete','head','options','trace'].responses"
+    severity: error
+    then:
+      field: "400"
+      function: defined
+
+  every-body-operation-declares-413:
+    description: "Every operation that takes a request body declares its 413 request.too-large, the body limit's refusal."
+    given: "$.paths[*][?(@.requestBody)].responses"
+    severity: error
+    then:
+      field: "413"
+      function: defined

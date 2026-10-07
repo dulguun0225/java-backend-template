@@ -57,10 +57,11 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <ul>
  *   <li>a member its request type does not declare — 400 {@code validation.failed}, {@code validation.unknown-field}
- *       at its pointer;
+ *       at its pointer, {@code allowed} the {@code properties} of the operation's request schema in the generated
+ *       document, sorted; 101 of them — 100 entries and {@code errorsOmitted: 1};
  *   <li>each of its path variables sent in the body — {@code validation.identifier-in-path} at that pointer;
  *   <li>every member of its record sent as a JSON array — {@code validation.wrong-type} at that pointer, with its
- *       {@code expected} param and a {@code detail};
+ *       {@code expected} param, the member's schema {@code type}, and a {@code detail};
  *   <li>every member of its record given twice, and a member given twice inside an undeclared object —
  *       {@code validation.duplicate-member} at the repeated member's pointer;
  *   <li>text that is not well-formed JSON — 400 {@code validation.malformed-body} with the line and column;
@@ -70,7 +71,9 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>and none of them opens a transaction, so the sweep writes nothing. A sentinel sent as a value in those bodies
  * appears in no response and in no log line. The main operations discovered are held equal to the operations the
- * committed {@code openapi/v1.json} declares a request body for, both ways.
+ * committed {@code openapi/v1.json} declares a request body for, both ways. The schemas are read from the document
+ * this context generates, which carries the probe's operations beside the main ones; {@code OpenApiSnapshotIT}
+ * holds the main ones equal to the committed document.
  *
  * <p>{@link StrictBodyProbeController} is imported beside the main controllers: its {@code update} keeps the
  * path-identifier case non-vacuous while no main operation takes a body on a route with a variable, and its
@@ -170,14 +173,46 @@ class StrictBodyEndpointIT {
     }
 
     @Test
-    void anUndeclaredMemberIsNamedOnEveryOperationAndOpensNoTransaction() {
+    void anUndeclaredMemberIsNamedOnEveryOperationListingTheSchemasMembersAndOpensNoTransaction() {
+        JsonNode document = document();
         for (BodyOperation operation : operations()) {
             ResponseEntity<String> refused =
                     refusedWithoutATransaction(operation, "{\"__probe\":\"" + SENTINEL + "\"}");
+            List<String> members = new ArrayList<>();
+            requestSchema(document, operation).get("properties").propertyNames().forEach(members::add);
+            assertThat(members)
+                    .as(operation.operationId() + " declares members")
+                    .isNotEmpty();
             assertThat(errorsOf(refused))
                     .as(operation.operationId())
-                    .contains(Map.of("pointer", "/__probe", "code", "validation.unknown-field"));
+                    .contains(Map.of(
+                            "pointer",
+                            "/__probe",
+                            "code",
+                            "validation.unknown-field",
+                            "params",
+                            Map.of("allowed", members.stream().sorted().toList())));
             assertNoEcho(operation, refused);
+        }
+    }
+
+    /**
+     * One entry per undeclared member would let a body buy a response many times its size: 101 binding failures are
+     * 100 entries and {@code errorsOmitted: 1}. Each declared member is sent as a JSON array, so the field rules,
+     * whose failures at a member already refused are dropped, add none, and the 101 are binding failures alone.
+     */
+    @Test
+    void oneHundredAndOneFailuresAreOneHundredEntriesAndOneOmittedOnEveryOperation() {
+        for (BodyOperation operation : operations()) {
+            RecordComponent[] members = operation.body().getRecordComponents();
+            String body = java.util.stream.Stream.concat(
+                            java.util.Arrays.stream(members).map(member -> "\"" + member.getName() + "\":[]"),
+                            java.util.stream.IntStream.range(0, 101 - members.length)
+                                    .mapToObj(i -> "\"__m" + (1000 + i) + "\":0"))
+                    .collect(Collectors.joining(",", "{", "}"));
+            Map<String, Object> problem = bodyOf(refusedWithoutATransaction(operation, body));
+            assertThat(problem).as(operation.operationId()).containsEntry("errorsOmitted", 1);
+            assertThat(errorsOf(problem)).as(operation.operationId()).hasSize(100);
         }
     }
 
@@ -198,9 +233,12 @@ class StrictBodyEndpointIT {
     }
 
     @Test
-    void everyMemberOfTheWrongJsonTypeIsNamedOnEveryOperation() {
+    void everyMemberOfTheWrongJsonTypeIsNamedOnEveryOperationExpectingItsSchemaType() {
+        JsonNode document = document();
         for (BodyOperation operation : operations()) {
+            JsonNode properties = requestSchema(document, operation).get("properties");
             for (RecordComponent member : operation.body().getRecordComponents()) {
+                String type = properties.get(member.getName()).get("type").asString();
                 ResponseEntity<String> refused =
                         refusedWithoutATransaction(operation, "{\"" + member.getName() + "\":[\"" + SENTINEL + "\"]}");
                 assertThat(errorsOf(refused))
@@ -208,10 +246,8 @@ class StrictBodyEndpointIT {
                         .anySatisfy(error -> assertThat(error)
                                 .containsEntry("pointer", "/" + member.getName())
                                 .containsEntry("code", "validation.wrong-type")
-                                .containsKey("detail")
-                                .extractingByKey("params")
-                                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
-                                .containsOnlyKeys("expected"));
+                                .containsEntry("detail", "expected " + type)
+                                .containsEntry("params", Map.of("expected", type)));
                 assertNoEcho(operation, refused);
             }
         }
@@ -392,10 +428,40 @@ class StrictBodyEndpointIT {
         return JSON.readValue(Objects.requireNonNull(response.getBody()), Map.class);
     }
 
-    @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> errorsOf(ResponseEntity<String> response) {
-        Object errors = bodyOf(response).get("errors");
-        assertThat(errors).as(response.getBody()).isInstanceOf(List.class);
+        return errorsOf(bodyOf(response));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> errorsOf(Map<String, Object> problem) {
+        Object errors = problem.get("errors");
+        assertThat(errors).as(String.valueOf(problem)).isInstanceOf(List.class);
         return (List<Map<String, Object>>) Objects.requireNonNull(errors);
+    }
+
+    /** The document this context generates: the main operations and the imported probe's. */
+    private JsonNode document() {
+        String raw = RestClient.create("http://localhost:" + port)
+                .get()
+                .uri("/v3/api-docs")
+                .retrieve()
+                .body(String.class);
+        return JSON.readTree(Objects.requireNonNull(raw));
+    }
+
+    /** The request-body schema the document declares for {@code operation}, its component reference followed. */
+    private static JsonNode requestSchema(JsonNode document, BodyOperation operation) {
+        JsonNode schema = document.get("paths")
+                .get(operation.pattern())
+                .get(operation.method().name().toLowerCase(java.util.Locale.ROOT))
+                .get("requestBody")
+                .get("content")
+                .get("application/json")
+                .get("schema");
+        if (schema.has("$ref")) {
+            String ref = schema.get("$ref").asString();
+            return document.get("components").get("schemas").get(ref.substring(ref.lastIndexOf('/') + 1));
+        }
+        return schema;
     }
 }

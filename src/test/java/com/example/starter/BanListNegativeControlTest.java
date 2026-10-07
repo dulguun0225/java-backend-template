@@ -74,6 +74,7 @@ class BanListNegativeControlTest {
                 .toString();
         assertThat(report)
                 .contains(FIXTURES_PACKAGE + ".HandBuiltFieldErrorFixture.literal()")
+                .contains(FIXTURES_PACKAGE + ".HandBuiltFieldErrorFixture.literalParameter()")
                 .doesNotContain("HandBuiltFieldErrorFixture.typed()");
     }
 }

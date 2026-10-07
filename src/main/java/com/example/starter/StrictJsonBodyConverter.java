@@ -3,6 +3,7 @@ package com.example.starter;
 import com.example.starter.platform.DecimalNotStringException;
 import com.example.starter.platform.error.BoundBody;
 import com.example.starter.platform.error.FieldError;
+import com.example.starter.platform.error.ValidationFailed;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayDeque;
@@ -10,10 +11,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.springframework.core.ResolvableType;
 import org.springframework.http.HttpInputMessage;
@@ -30,24 +34,41 @@ import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
 import tools.jackson.core.TokenStreamContext;
 import tools.jackson.core.TokenStreamLocation;
+import tools.jackson.core.exc.InputCoercionException;
 import tools.jackson.core.exc.StreamConstraintsException;
 import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.DeserializationContext;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JavaType;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectReader;
 import tools.jackson.databind.ValueDeserializer;
 import tools.jackson.databind.deser.DeserializationProblemHandler;
 import tools.jackson.databind.deser.ValueInstantiator;
+import tools.jackson.databind.deser.std.StdScalarDeserializer;
 import tools.jackson.databind.exc.MismatchedInputException;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.module.SimpleModule;
 
 /**
  * The one reader of request bodies: binds a {@code @RequestBody BoundBody<T>} parameter strictly, recording
- * every member the record {@code T} does not declare, every path identifier sent in the body, every value
- * of the wrong JSON type and every member given twice in one object, so one {@code validation.failed} can name
- * all of them together with the feature's own field-rule failures ({@link BoundBody#validate}).
+ * every member the record {@code T} does not declare (with the members it does declare, sorted, as
+ * {@code allowed}), every path identifier sent in the body, every value of the wrong JSON type, every value of the
+ * right JSON type that does not parse as its format ({@code validation.invalid-value}: a UUID not in its
+ * 36-character form, an integer past its range) or lies outside its enumeration ({@code validation.unknown-value}),
+ * and every member given twice in one object, so one {@code validation.failed} can name all of them together with
+ * the feature's own field-rule failures ({@link BoundBody#validate}).
+ *
+ * <p>The body is read up to a configured limit and no further: a declared {@code Content-Length} over it, or a
+ * body that streams past it, is {@link RequestBodyTooLarge} before any member is read, which the edge answers as
+ * 413 {@code request.too-large} with the limit as {@code max}. Each pass records at most
+ * {@link ValidationFailed#MAX_ERRORS} entries and counts the rest, so a body of many undeclared members holds no
+ * more than that many entries, each with its {@code allowed} list, in memory.
+ *
+ * <p>The reader's mapper is Boot's own, rebuilt with one module: a UUID member is read in RFC 9562's
+ * 36-character form only, untrimmed, where Jackson's own reader also takes a 24-character base64 string. The
+ * shared mapper is left as it is.
  *
  * <p>A member given twice is found by a first pass over the body's tokens, which keeps the names seen in each
  * open object and records {@code validation.duplicate-member} at the pointer of every repeat, at any depth,
@@ -89,9 +110,18 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
             List.of(MediaType.APPLICATION_JSON, new MediaType("application", "*+json"));
 
     private final JsonMapper mapper;
+    private final int maxBytes;
 
-    StrictJsonBodyConverter(JsonMapper mapper) {
-        this.mapper = mapper;
+    /** A reader over Boot's {@code mapper} that reads at most {@code maxBytes} of any body. */
+    StrictJsonBodyConverter(JsonMapper mapper, int maxBytes) {
+        if (maxBytes < 1 || maxBytes == Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("the request-body limit must be between 1 and " + (Integer.MAX_VALUE - 1)
+                    + " bytes, was " + maxBytes);
+        }
+        this.mapper = mapper.rebuild()
+                .addModule(new SimpleModule("strict-uuid").addDeserializer(UUID.class, new StrictUuidDeserializer()))
+                .build();
+        this.maxBytes = maxBytes;
     }
 
     @Override
@@ -114,14 +144,20 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
             throws IOException {
         JavaType target =
                 mapper.constructType(type.as(BoundBody.class).getGeneric(0).getType());
-        Collector collector = new Collector(pathVariables());
+        Collector collector = new Collector(pathVariables(), mapper);
         ObjectReader reader =
                 mapper.readerFor(target).withHandler(collector).without(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+        if (inputMessage.getHeaders().getContentLength() > maxBytes) {
+            throw new RequestBodyTooLarge(maxBytes);
+        }
         byte[] bytes;
         try (InputStream body = inputMessage.getBody()) {
-            bytes = body.readAllBytes();
+            bytes = body.readNBytes(maxBytes + 1);
         }
-        List<FieldError> duplicates = duplicateMembers(reader, bytes);
+        if (bytes.length > maxBytes) {
+            throw new RequestBodyTooLarge(maxBytes);
+        }
+        Recorded duplicates = duplicateMembers(reader, bytes);
         try (JsonParser parser = reader.createParser(bytes)) {
             JsonToken first = parser.nextToken();
             if (first == null) {
@@ -134,16 +170,26 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
             if (parser.nextToken() != null) {
                 throw unreadable(notWellFormed(parser.currentTokenLocation()), inputMessage);
             }
+            Recorded found = collector.recorded.and(duplicates);
             if (value == null) {
-                if (collector.errors.isEmpty() && duplicates.isEmpty()) {
+                if (found.errors().isEmpty()) {
                     throw unreadable(new UnreadableBody(UnreadableBody.Kind.NOT_AN_OBJECT), inputMessage);
                 }
-                return BoundBody.unbound(concat(collector.errors, duplicates));
+                return BoundBody.unbound(found.errors(), found.omitted());
             }
-            if (!duplicates.isEmpty()) {
-                return BoundBody.unbound(concat(collector.errors, duplicates));
+            if (!duplicates.errors().isEmpty()) {
+                return BoundBody.unbound(found.errors(), found.omitted());
             }
-            return BoundBody.of(value, collector.errors);
+            return BoundBody.of(value, found.errors(), found.omitted());
+        } catch (InputCoercionException e) {
+            String pointer = e.processor() instanceof JsonParser source ? pointer(source) : "";
+            if (pointer.isEmpty()) {
+                throw unreadable(notWellFormed(e.getLocation()), inputMessage);
+            }
+            Class<?> coerced = e.getTargetType();
+            collector.recorded.add(invalidValue(pointer, coerced == null ? "integer" : InputTypes.expected(coerced)));
+            Recorded found = collector.recorded.and(duplicates);
+            return BoundBody.unbound(found.errors(), found.omitted());
         } catch (StreamReadException | StreamConstraintsException e) {
             throw unreadable(notWellFormed(e.getLocation()), inputMessage);
         } catch (DatabindException e) {
@@ -154,9 +200,9 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
             if (pointer.isEmpty()) {
                 throw unreadable(notWellFormed(e.getLocation()), inputMessage);
             }
-            List<FieldError> errors = concat(collector.errors, duplicates);
-            errors.add(wrongType(pointer, expected(e)));
-            return BoundBody.unbound(errors);
+            collector.recorded.add(wrongType(pointer, expected(e)));
+            Recorded found = collector.recorded.and(duplicates);
+            return BoundBody.unbound(found.errors(), found.omitted());
         }
     }
 
@@ -172,11 +218,12 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
     }
 
     /**
-     * The first pass: every member given twice in one object, at its pointer, at any depth. Text that is not
-     * well-formed JSON ends the pass with what it found; the binding pass then reports where it stopped.
+     * The first pass: every member given twice in one object, at its pointer, at any depth, a member given three
+     * times named once. Text that is not well-formed JSON ends the pass with what it found; the binding pass then
+     * reports where it stopped.
      */
-    private static List<FieldError> duplicateMembers(ObjectReader reader, byte[] bytes) {
-        List<FieldError> found = new ArrayList<>();
+    private static Recorded duplicateMembers(ObjectReader reader, byte[] bytes) {
+        Recorded found = new Recorded();
         Deque<Set<String>> open = new ArrayDeque<>();
         try (JsonParser parser = reader.createParser(bytes)) {
             for (JsonToken token = parser.nextToken(); token != null; token = parser.nextToken()) {
@@ -185,9 +232,7 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
                     case END_OBJECT -> open.pop();
                     case PROPERTY_NAME -> {
                         if (!Objects.requireNonNull(open.peek()).add(String.valueOf(parser.currentName()))) {
-                            found.add(FieldError.of(
-                                    parser.streamReadContext().pathAsPointer().toString(),
-                                    new ApiFieldCode.DuplicateMember()));
+                            found.add(FieldError.of(pointer(parser), new ApiFieldCode.DuplicateMember()));
                         }
                     }
                     default -> {}
@@ -199,14 +244,52 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
         return found;
     }
 
-    private static List<FieldError> concat(List<FieldError> first, List<FieldError> second) {
-        List<FieldError> all = new ArrayList<>(first);
-        all.addAll(second);
-        return all;
-    }
-
     private static FieldError wrongType(String pointer, String jsonType) {
         return FieldError.of(pointer, new ApiFieldCode.WrongType(jsonType), "expected " + jsonType);
+    }
+
+    private static FieldError invalidValue(String pointer, String expected) {
+        return FieldError.of(pointer, new ApiFieldCode.InvalidValue(expected), "expected " + expected);
+    }
+
+    private static String pointer(JsonParser parser) {
+        return parser.streamReadContext().pathAsPointer().toString();
+    }
+
+    /**
+     * The entries one pass recorded, each once and at most {@link ValidationFailed#MAX_ERRORS} of them, and the
+     * number it found past that and did not record. Past the cap a failure is counted, not compared, so one that
+     * would have been merged with another is counted each time it is found.
+     */
+    static final class Recorded {
+
+        private final Set<FieldError> errors = new LinkedHashSet<>();
+        private long omitted;
+
+        void add(FieldError error) {
+            if (errors.size() < ValidationFailed.MAX_ERRORS) {
+                errors.add(error);
+            } else if (!errors.contains(error)) {
+                omitted++;
+            }
+        }
+
+        List<FieldError> errors() {
+            return List.copyOf(errors);
+        }
+
+        long omitted() {
+            return omitted;
+        }
+
+        /** This pass's entries then {@code other}'s, with both counts; {@code BoundBody} sorts and caps the sum. */
+        Recorded and(Recorded other) {
+            Recorded both = new Recorded();
+            both.errors.addAll(errors);
+            both.errors.addAll(other.errors);
+            both.omitted = omitted + other.omitted;
+            return both;
+        }
     }
 
     private static boolean isJson(MediaType mediaType) {
@@ -258,29 +341,10 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
         return segment.replace("~", "~0").replace("/", "~1");
     }
 
+    /** The JSON type a wrong-typed value should have had: the {@code expected} param of its entry. */
     private static String expected(DatabindException e) {
         if (e instanceof MismatchedInputException mismatch && mismatch.getTargetType() != null) {
-            return expected(mismatch.getTargetType());
-        }
-        return "object";
-    }
-
-    /**
-     * The expected JSON type of a bound Java type: the {@code expected} param, and in {@code detail} as
-     * {@code expected <type>}.
-     */
-    static String expected(Class<?> type) {
-        if (CharSequence.class.isAssignableFrom(type) || type.isEnum() || type == Character.class) {
-            return "string";
-        }
-        if (type == Boolean.class || type == boolean.class) {
-            return "boolean";
-        }
-        if (Number.class.isAssignableFrom(type) || (type.isPrimitive() && type != void.class)) {
-            return "integer";
-        }
-        if (Collection.class.isAssignableFrom(type) || type.isArray()) {
-            return "array";
+            return InputTypes.jsonType(mismatch.getTargetType());
         }
         return "object";
     }
@@ -304,10 +368,13 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
     static final class Collector extends DeserializationProblemHandler {
 
         private final Set<String> pathVariables;
-        final List<FieldError> errors = new ArrayList<>();
+        private final JsonMapper mapper;
+        private final Map<ValueDeserializer<?>, List<String>> declared = new IdentityHashMap<>();
+        final Recorded recorded = new Recorded();
 
-        Collector(Set<String> pathVariables) {
+        Collector(Set<String> pathVariables, JsonMapper mapper) {
             this.pathVariables = pathVariables;
+            this.mapper = mapper;
         }
 
         @Override
@@ -321,12 +388,26 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
             String pointer =
                     (enclosing == null ? "" : enclosing.pathAsPointer().toString()) + "/" + escape(propertyName);
             boolean topLevel = enclosing != null && enclosing.inRoot();
-            errors.add(
+            recorded.add(
                     topLevel && pathVariables.contains(propertyName)
                             ? FieldError.of(pointer, new ApiFieldCode.IdentifierInPath())
-                            : FieldError.of(pointer, new ApiFieldCode.UnknownField()));
+                            : FieldError.of(pointer, new ApiFieldCode.UnknownField(allowed(deserializer))));
             parser.skipChildren();
             return true;
+        }
+
+        /** The members the object's type declares, sorted: what an undeclared member's refusal allows. */
+        private List<String> allowed(ValueDeserializer<?> deserializer) {
+            return declared.computeIfAbsent(deserializer, d -> {
+                Collection<Object> known = d.getKnownPropertyNames();
+                return known == null
+                        ? List.of()
+                        : known.stream()
+                                .map(String::valueOf)
+                                .sorted()
+                                .distinct()
+                                .toList();
+            });
         }
 
         /**
@@ -349,18 +430,47 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
             return object == null ? null : object.getParent();
         }
 
+        /**
+         * A string that does not convert. Outside an enumeration's values it is {@code validation.unknown-value};
+         * where the type's JSON type is a string — a UUID, a date — it is the right type that does not parse,
+         * {@code validation.invalid-value}; where it is another — {@code "yes"} for a boolean — the wrong type.
+         */
         @Override
         public @Nullable Object handleWeirdStringValue(
                 DeserializationContext context, Class<?> targetType, String valueToConvert, String failureMsg) {
-            wrongType(context.getParser(), expected(targetType));
+            String pointer = pointer(context.getParser());
+            if (pointer.isEmpty()) {
+                return null;
+            }
+            if (targetType.isEnum()) {
+                recorded.add(FieldError.of(pointer, new ApiFieldCode.UnknownValue(enumValues(targetType))));
+            } else if (InputTypes.jsonType(targetType).equals("string")) {
+                recorded.add(invalidValue(pointer, InputTypes.expected(targetType)));
+            } else {
+                recorded.add(StrictJsonBodyConverter.wrongType(pointer, InputTypes.jsonType(targetType)));
+            }
             return null;
         }
 
         @Override
         public @Nullable Object handleWeirdNumberValue(
                 DeserializationContext context, Class<?> targetType, Number valueToConvert, String failureMsg) {
-            wrongType(context.getParser(), expected(targetType));
+            wrongType(context.getParser(), InputTypes.jsonType(targetType));
             return null;
+        }
+
+        /** An enumeration's values as this mapper writes them, sorted. */
+        private List<String> enumValues(Class<?> type) {
+            Object[] constants = type.getEnumConstants();
+            if (constants == null) {
+                return List.of();
+            }
+            List<String> values = new ArrayList<>();
+            for (Object constant : constants) {
+                JsonNode written = mapper.valueToTree(constant);
+                values.add(written.isString() ? written.asString() : ((Enum<?>) constant).name());
+            }
+            return values.stream().sorted().toList();
         }
 
         @Override
@@ -370,7 +480,7 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
                 JsonToken token,
                 JsonParser parser,
                 String failureMsg) {
-            wrongType(parser, expected(targetType.getRawClass()));
+            wrongType(parser, InputTypes.jsonType(targetType.getRawClass()));
             parser.skipChildren();
             return null;
         }
@@ -382,7 +492,7 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
                 ValueInstantiator instantiator,
                 JsonParser parser,
                 String failureMsg) {
-            wrongType(parser, expected(instClass));
+            wrongType(parser, InputTypes.jsonType(instClass));
             parser.skipChildren();
             return null;
         }
@@ -392,11 +502,32 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
             if (pointer.isEmpty()) {
                 return;
             }
-            errors.add(StrictJsonBodyConverter.wrongType(pointer, jsonType));
+            recorded.add(StrictJsonBodyConverter.wrongType(pointer, jsonType));
+        }
+    }
+
+    /**
+     * A UUID member in RFC 9562's 36-character form only, untrimmed. Any other string is handed to the problem
+     * handler as a string that does not convert, which records {@code validation.invalid-value}; a value that is not
+     * a string, as an unexpected token, which records {@code validation.wrong-type}.
+     */
+    static final class StrictUuidDeserializer extends StdScalarDeserializer<UUID> {
+
+        StrictUuidDeserializer() {
+            super(UUID.class);
         }
 
-        private static String pointer(JsonParser parser) {
-            return parser.streamReadContext().pathAsPointer().toString();
+        @Override
+        public @Nullable UUID deserialize(JsonParser parser, DeserializationContext context) {
+            if (parser.currentToken() != JsonToken.VALUE_STRING) {
+                return (UUID) context.handleUnexpectedToken(UUID.class, parser);
+            }
+            String text = parser.getString();
+            UUID parsed = InputTypes.uuid(text);
+            if (parsed != null) {
+                return parsed;
+            }
+            return (UUID) context.handleWeirdStringValue(UUID.class, text, "not the 36-character UUID form");
         }
     }
 }

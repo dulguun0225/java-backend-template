@@ -11,6 +11,7 @@ public class BoomController {
 
     public static final String PATH = "/api/test/boom";
     public static final String UNCODED_PATH = "/api/test/boom/uncoded";
+    public static final String TOO_LARGE_PATH = "/api/test/boom/too-large";
     public static final String SENTINEL = "SENTINEL-must-never-reach-the-wire-7f3a";
 
     @GetMapping(PATH)
@@ -22,5 +23,11 @@ public class BoomController {
     @GetMapping(UNCODED_PATH)
     String uncoded() {
         throw new ResponseStatusException(HttpStatus.CONFLICT, SENTINEL);
+    }
+
+    /** A 413 raised by anything but the body limit, which could not carry its {@code max}: for {@code ApiErrorEdgeIT}. */
+    @GetMapping(TOO_LARGE_PATH)
+    String tooLarge() {
+        throw new ResponseStatusException(HttpStatus.CONTENT_TOO_LARGE, SENTINEL);
     }
 }

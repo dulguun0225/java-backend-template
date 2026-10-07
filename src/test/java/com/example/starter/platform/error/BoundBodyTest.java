@@ -151,6 +151,51 @@ class BoundBodyTest {
         assertThatIllegalStateException().isThrownBy(() -> body.validate((sample, found) -> null));
     }
 
+    /**
+     * At most {@link ValidationFailed#MAX_ERRORS} entries leave, the binding failures first; the rest, and the
+     * failures the read found and did not record, are counted.
+     */
+    @Test
+    void entriesPastTheCapAreCountedWithTheOnesTheReadDidNotRecord() {
+        List<FieldError> binding = java.util.stream.IntStream.range(0, 60)
+                .mapToObj(i -> FieldError.of("/m" + (100 + i), new Unknown()))
+                .toList();
+        BoundBody<Sample> body = BoundBody.of(new Sample("X"), binding, 7);
+
+        ValidationFailed failed = catchThrowableOfType(
+                ValidationFailed.class,
+                () -> body.validate((sample, found) -> {
+                    for (int i = 0; i < 50; i++) {
+                        found.add(FieldError.of("/r" + (100 + i), new Required()));
+                    }
+                    return null;
+                }));
+
+        assertThat(failed).isNotNull();
+        assertThat(failed.errors()).hasSize(ValidationFailed.MAX_ERRORS);
+        assertThat(failed.errors().subList(0, 60)).isEqualTo(binding);
+        assertThat(failed.omitted()).isEqualTo(7 + 10);
+        assertThat(catchThrowableOfType(
+                                ValidationFailed.class,
+                                () -> BoundBody.unbound(binding, 3).validate((sample, found) -> sample))
+                        .omitted())
+                .isEqualTo(3);
+        assertThatIllegalArgumentException().isThrownBy(() -> BoundBody.of(new Sample("X"), List.of(), 1));
+    }
+
+    /** A rule may name a parameter; it sorts after no binding failure's pointer and is never dropped as one. */
+    @Test
+    void aRuleFailureNamingAParameterIsKeptBesideTheBindingFailures() {
+        FieldError queryRequired = FieldError.ofParameter(FieldError.In.QUERY, "name", new Required());
+        BoundBody<Sample> body = BoundBody.of(new Sample("X"), List.of(NAME_WRONG_TYPE));
+
+        assertThat(failures(() -> body.validate((sample, found) -> {
+                    found.add(queryRequired);
+                    return null;
+                })))
+                .containsExactly(NAME_WRONG_TYPE, queryRequired);
+    }
+
     private static List<FieldError> failures(Runnable validation) {
         ValidationFailed failed = catchThrowableOfType(ValidationFailed.class, validation::run);
         assertThat(failed).as("the body was expected to be refused").isNotNull();
