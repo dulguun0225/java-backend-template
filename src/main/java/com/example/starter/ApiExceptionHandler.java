@@ -9,15 +9,23 @@ import com.example.starter.platform.observability.LogContext;
 import com.example.starter.platform.observability.LogEvent;
 import java.util.Map;
 import org.jspecify.annotations.Nullable;
+import org.springframework.beans.TypeMismatchException;
+import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
@@ -57,6 +65,41 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(ApiErrorCode.MALFORMED_BODY.status()).body(body);
     }
 
+    /**
+     * A path variable, query parameter or header whose text does not convert to its declared type — {@code abc}
+     * where {@code /api/greetings/{id}} expects a UUID. {@code validation.bad-request}, with a {@code detail}
+     * naming the input and the type it must be. Spring's own {@code detail} quotes the value sent, so it is
+     * replaced, never extended: nothing here is built from the value. The input is named in prose only, since a
+     * {@code validation.failed} entry names a body member by its JSON pointer and a request input outside the body
+     * has no pointer; {@code docs/GATES.md} records that as a named gap.
+     */
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(
+            TypeMismatchException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        ProblemDetail body = ProblemDetail.forStatus(ApiErrorCode.BAD_REQUEST.status());
+        body.setProperty("code", ApiErrorCode.BAD_REQUEST.wire());
+        body.setDetail(typeMismatchDetail(ex));
+        return ResponseEntity.status(ApiErrorCode.BAD_REQUEST.status()).body(body);
+    }
+
+    /** The input's kind and name, from the handler's declaration, and the simple name of the type it must be. */
+    static String typeMismatchDetail(TypeMismatchException ex) {
+        String input = "A request parameter";
+        if (ex instanceof MethodArgumentTypeMismatchException mismatch) {
+            MethodParameter parameter = mismatch.getParameter();
+            String kind = parameter.hasParameterAnnotation(PathVariable.class)
+                    ? "path variable"
+                    : parameter.hasParameterAnnotation(RequestParam.class)
+                            ? "query parameter"
+                            : parameter.hasParameterAnnotation(RequestHeader.class) ? "header" : "parameter";
+            input = "The " + kind + " '" + mismatch.getName() + "'";
+        }
+        Class<?> required = ex.getRequiredType();
+        return required == null
+                ? input + " has a value of the wrong type."
+                : input + " must be of type " + required.getSimpleName() + ".";
+    }
+
     @ExceptionHandler(DecimalNotStringException.class)
     ResponseEntity<Object> handleDecimalNotString(DecimalNotStringException ex) {
         return problem(ApiErrorCode.NUMBER_NOT_STRING);
@@ -82,7 +125,10 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     /**
      * The funnel every base-class handler delegates to. Stamping the catalog {@code code} by status here codes
      * all the standard MVC failures at once. Server-side faults the base class surfaces are logged under
-     * {@link LogEvent#REQUEST_UNHANDLED_ERROR} with a joinable incident id, like the catch-all 500.
+     * {@link LogEvent#REQUEST_UNHANDLED_ERROR} with a joinable incident id, like the catch-all 500. A client-error
+     * status no catalog code carries — a {@code ResponseStatusException(CONFLICT)} thrown by a feature — is a
+     * missing catalog entry, a server fault: it is answered and logged as the catch-all 500, never sent under a
+     * code whose catalog status is another one.
      */
     @Override
     protected @Nullable ResponseEntity<Object> handleExceptionInternal(
@@ -90,7 +136,15 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         ResponseEntity<Object> response = super.handleExceptionInternal(ex, body, headers, statusCode, request);
         if (response != null && response.getBody() instanceof ProblemDetail problem) {
             if (!hasCode(problem)) {
-                problem.setProperty("code", codeFor(statusCode).wire());
+                ApiErrorCode code = codeFor(statusCode);
+                if (code == null) {
+                    return handleUnexpected(ex);
+                }
+                problem.setProperty("code", code.wire());
+            }
+            String allowed = allowedDetail(ex);
+            if (allowed != null) {
+                problem.setDetail(allowed);
             }
             if (statusCode.is5xxServerError()) {
                 problem.setProperty("incidentId", logUnhandled(ex));
@@ -99,12 +153,39 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return response;
     }
 
+    /**
+     * What is allowed, for the two refusals whose Spring {@code detail} quotes what the caller sent — the method
+     * ({@code Method 'X' is not supported.}) and the {@code Content-Type} — replaced by the methods or media types
+     * the route takes, which are the service's own values; {@code null} for every other exception.
+     */
+    static @Nullable String allowedDetail(Exception ex) {
+        if (ex instanceof HttpRequestMethodNotSupportedException method) {
+            String[] supported = method.getSupportedMethods();
+            return supported == null || supported.length == 0
+                    ? "The method is not supported here."
+                    : "Supported methods: " + String.join(", ", supported) + ".";
+        }
+        if (ex instanceof HttpMediaTypeNotSupportedException media) {
+            return media.getSupportedMediaTypes().isEmpty()
+                    ? "The content type is not supported here."
+                    : "Supported content types: "
+                            + String.join(
+                                    ", ",
+                                    media.getSupportedMediaTypes().stream()
+                                            .map(Object::toString)
+                                            .toList())
+                            + ".";
+        }
+        return null;
+    }
+
     private static boolean hasCode(ProblemDetail problem) {
         Map<String, Object> properties = problem.getProperties();
         return properties != null && properties.containsKey("code");
     }
 
-    private static ApiErrorCode codeFor(HttpStatusCode status) {
+    /** The catalog code whose status is {@code status}, or {@code null} when no code carries it. */
+    static @Nullable ApiErrorCode codeFor(HttpStatusCode status) {
         if (status.isSameCodeAs(HttpStatus.NOT_FOUND)) {
             return ApiErrorCode.NOT_FOUND;
         }
@@ -117,13 +198,19 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         if (status.isSameCodeAs(HttpStatus.NOT_ACCEPTABLE)) {
             return ApiErrorCode.NOT_ACCEPTABLE;
         }
+        if (status.isSameCodeAs(HttpStatus.CONTENT_TOO_LARGE)) {
+            return ApiErrorCode.TOO_LARGE;
+        }
         if (status.isSameCodeAs(HttpStatus.SERVICE_UNAVAILABLE)) {
             return ApiErrorCode.SERVICE_UNAVAILABLE;
+        }
+        if (status.isSameCodeAs(HttpStatus.BAD_REQUEST)) {
+            return ApiErrorCode.BAD_REQUEST;
         }
         if (status.is5xxServerError()) {
             return ApiErrorCode.INTERNAL;
         }
-        return ApiErrorCode.BAD_REQUEST;
+        return null;
     }
 
     /**

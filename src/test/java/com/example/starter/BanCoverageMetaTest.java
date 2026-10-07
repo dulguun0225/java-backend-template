@@ -55,7 +55,8 @@ class BanCoverageMetaTest {
         INLINE_WIRE_CODE,
         SETSCALE_WITHOUT_POLICY,
         HAND_WRITTEN_VERSIONED_UPDATE,
-        REQUEST_BODY_OUTSIDE_BOUND_BODY
+        REQUEST_BODY_OUTSIDE_BOUND_BODY,
+        FIELD_ERROR_BUILT_BY_HAND
     }
 
     static {
@@ -85,6 +86,7 @@ class BanCoverageMetaTest {
         GATES.put(
                 Ban.HAND_WRITTEN_VERSIONED_UPDATE, new BanGate(Tier.ARCHUNIT, "versionedTableUpdatesGoThroughHelper"));
         GATES.put(Ban.REQUEST_BODY_OUTSIDE_BOUND_BODY, new BanGate(Tier.ARCHUNIT, "requestBodiesBindThroughBoundBody"));
+        GATES.put(Ban.FIELD_ERROR_BUILT_BY_HAND, new BanGate(Tier.ARCHUNIT, "fieldErrorsAreBuiltFromTheirParams"));
         GATES.put(
                 Ban.INLINE_WIRE_CODE,
                 new BanGate(

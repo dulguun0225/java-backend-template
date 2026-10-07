@@ -64,4 +64,16 @@ class BanListNegativeControlTest {
                 .contains("parameter 0 is a @RequestBody of " + FIXTURES_PACKAGE + ".RawRequestBodyFixture$CreateBody")
                 .doesNotContain("RawRequestBodyFixture.update");
     }
+
+    /** Pins the field-error rule to the fixture's hand-built error, and not to the one built from its params. */
+    @Test
+    void theFieldErrorRuleFiresOnItsOwnFixture() {
+        String report = BanListArchTest.FIELD_ERRORS_BUILT_FROM_THEIR_PARAMS
+                .evaluate(FIXTURES)
+                .getFailureReport()
+                .toString();
+        assertThat(report)
+                .contains(FIXTURES_PACKAGE + ".HandBuiltFieldErrorFixture.literal()")
+                .doesNotContain("HandBuiltFieldErrorFixture.typed()");
+    }
 }

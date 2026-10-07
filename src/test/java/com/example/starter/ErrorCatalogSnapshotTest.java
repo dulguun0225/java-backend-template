@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.starter.greeting.GreetingErrorCode;
 import com.example.starter.greeting.GreetingFieldCode;
 import com.example.starter.platform.error.FieldCode;
+import com.example.starter.platform.error.FieldParams;
 import com.example.starter.platform.error.WireError;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -12,10 +13,14 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.RecordComponent;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,11 +30,17 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 /**
- * The committed wire-contract snapshot for the error catalogs: a new or moved wire code or a changed HTTP
- * status shows up as a reviewable diff and fails the build until {@code error-catalog-snapshot.txt} is
- * deliberately updated. Three guards, no Spring context: the snapshot itself; one wire string maps to one
- * status across every catalog; and the explicit catalog lists here equal the set of {@link WireError} and
- * {@link FieldCode} enums on the classpath, so a new feature's catalog cannot be silently left out.
+ * The committed wire-contract snapshot for the error catalogs: every {@code (code, HTTP status, param names)}
+ * triple, so a new or moved wire code, a changed HTTP status or a param added, removed or renamed shows up as a
+ * reviewable diff and fails the build until {@code error-catalog-snapshot.txt} is deliberately updated. A response
+ * code carries no params ({@code Rejected} takes none), so its list is {@code []}; a field code's list is the
+ * components of its {@link FieldParams} record, in order. The guards, no Spring context: the snapshot itself; one
+ * wire string maps to one status across every response catalog and to one param list across every field catalog;
+ * the explicit catalog lists here equal the set of {@link WireError} and {@link FieldCode} enums on the classpath,
+ * so a new feature's catalog cannot be silently left out; and every field code and its params record name each
+ * other, one to one, with no params record in the main code that no code declares. A code cannot be raised without
+ * its params: {@code FieldError.of} takes the code from the record, and
+ * {@code BanListArchTest.fieldErrorsAreBuiltFromTheirParams} keeps main code off the constructor that takes both.
  */
 class ErrorCatalogSnapshotTest {
 
@@ -56,13 +67,14 @@ class ErrorCatalogSnapshotTest {
         List<String> lines = new ArrayList<>();
         for (Class<? extends WireError> catalog : RESPONSE_CATALOGS) {
             for (WireError code : constants(catalog)) {
-                lines.add(code.wire() + " -> " + code.status() + " (" + catalog.getSimpleName() + "."
+                lines.add(code.wire() + " -> " + code.status() + " [] (" + catalog.getSimpleName() + "."
                         + ((Enum<?>) code).name() + ")");
             }
         }
         for (Class<? extends FieldCode> catalog : FIELD_CATALOGS) {
             for (FieldCode code : constants(catalog)) {
-                lines.add(code.wire() + " -> - (" + catalog.getSimpleName() + "." + ((Enum<?>) code).name() + ")");
+                lines.add(code.wire() + " -> - [" + String.join(", ", paramNames(code)) + "] ("
+                        + catalog.getSimpleName() + "." + ((Enum<?>) code).name() + ")");
             }
         }
         assertThat(lines).isNotEmpty();
@@ -90,6 +102,68 @@ class ErrorCatalogSnapshotTest {
     }
 
     @Test
+    void everyFieldWireCarriesOneParamListAcrossCatalogs() {
+        Map<String, Set<List<String>>> paramsByWire = new HashMap<>();
+        for (Class<? extends FieldCode> catalog : FIELD_CATALOGS) {
+            for (FieldCode code : constants(catalog)) {
+                paramsByWire
+                        .computeIfAbsent(code.wire(), w -> new java.util.HashSet<>())
+                        .add(paramNames(code));
+            }
+        }
+        List<String> divergent = paramsByWire.entrySet().stream()
+                .filter(e -> e.getValue().size() > 1)
+                .map(e -> e.getKey() + " -> " + e.getValue())
+                .sorted()
+                .toList();
+        assertThat(divergent)
+                .as("a field code must carry the same params in every catalog that declares it; divergent: "
+                        + divergent)
+                .isEmpty();
+    }
+
+    /**
+     * Each field code's params type is a record of its own, and that record names the code back: built with zero
+     * and {@code null} arguments, which no params record refuses, its {@code code()} is the constant declaring it.
+     */
+    @Test
+    void everyFieldCodeAndItsParamsRecordNameEachOther() throws ReflectiveOperationException {
+        Map<Class<?>, String> declaredBy = new HashMap<>();
+        for (Class<? extends FieldCode> catalog : FIELD_CATALOGS) {
+            for (FieldCode code : constants(catalog)) {
+                String constant = catalog.getSimpleName() + "." + ((Enum<?>) code).name();
+                Class<? extends FieldParams> type = code.paramsType();
+                assertThat(type.isRecord())
+                        .as(constant + " params type " + type.getName() + " must be a record")
+                        .isTrue();
+                assertThat(declaredBy.put(type, constant))
+                        .as(type.getName() + " is the params record of two codes")
+                        .isNull();
+                assertThat(instantiate(type).code())
+                        .as(type.getName() + ".code() must be " + constant)
+                        .isSameAs(code);
+            }
+        }
+    }
+
+    @Test
+    void everyParamsRecordInTheMainCodeIsDeclaredByAFieldCode() {
+        Set<String> scanned = MAIN.stream()
+                .filter(c -> !c.isInterface())
+                .filter(c -> c.isAssignableTo(FieldParams.class))
+                .map(JavaClass::getName)
+                .collect(Collectors.toCollection(TreeSet::new));
+        Set<String> declared = FIELD_CATALOGS.stream()
+                .flatMap(catalog -> Arrays.stream(constants(catalog)))
+                .map(code -> code.paramsType().getName())
+                .collect(Collectors.toCollection(TreeSet::new));
+        assertThat(scanned).as("classpath scan found no FieldParams records").isNotEmpty();
+        assertThat(scanned)
+                .as("every FieldParams implementation must be the params record of exactly one field code")
+                .isEqualTo(declared);
+    }
+
+    @Test
     void responseCatalogListEqualsTheClasspath() {
         assertScanEqualsList(WireError.class, RESPONSE_CATALOGS, "WireError");
     }
@@ -97,6 +171,41 @@ class ErrorCatalogSnapshotTest {
     @Test
     void fieldCatalogListEqualsTheClasspath() {
         assertScanEqualsList(FieldCode.class, FIELD_CATALOGS, "FieldCode");
+    }
+
+    private static List<String> paramNames(FieldCode code) {
+        RecordComponent[] components = code.paramsType().getRecordComponents();
+        assertThat(components)
+                .as(code.paramsType().getName() + " must be a record")
+                .isNotNull();
+        return Arrays.stream(components).map(RecordComponent::getName).toList();
+    }
+
+    private static FieldParams instantiate(Class<? extends FieldParams> type) throws ReflectiveOperationException {
+        RecordComponent[] components = type.getRecordComponents();
+        Class<?>[] types =
+                Arrays.stream(components).map(RecordComponent::getType).toArray(Class<?>[]::new);
+        Object[] arguments =
+                Arrays.stream(types).map(ErrorCatalogSnapshotTest::zero).toArray();
+        Constructor<? extends FieldParams> canonical = type.getDeclaredConstructor(types);
+        try {
+            return canonical.newInstance(arguments);
+        } catch (InvocationTargetException e) {
+            throw new AssertionError(type.getName() + " refused zero and null arguments", e.getCause());
+        }
+    }
+
+    private static @org.jspecify.annotations.Nullable Object zero(Class<?> type) {
+        if (type == boolean.class) {
+            return false;
+        }
+        if (type == char.class) {
+            return '\0';
+        }
+        if (type.isPrimitive()) {
+            return java.lang.reflect.Array.get(java.lang.reflect.Array.newInstance(type, 1), 0);
+        }
+        return null;
     }
 
     private static <T> T[] constants(Class<T> catalog) {

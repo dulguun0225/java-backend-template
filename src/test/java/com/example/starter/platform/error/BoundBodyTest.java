@@ -15,12 +15,58 @@ import org.junit.jupiter.api.Test;
  */
 class BoundBodyTest {
 
-    private static final FieldError UNKNOWN_FOO = new FieldError("/foo", "validation.unknown-field");
-    private static final FieldError UNKNOWN_BAR = new FieldError("/bar", "validation.unknown-field");
+    /** A catalog of this test's own, so the platform package is tested without the base package's codes. */
+    enum TestCode implements FieldCode {
+        UNKNOWN("validation.unknown-field", Unknown.class),
+        WRONG_TYPE("validation.wrong-type", WrongType.class),
+        REQUIRED("validation.required", Required.class);
+
+        private final String wire;
+        private final Class<? extends FieldParams> paramsType;
+
+        TestCode(String wire, Class<? extends FieldParams> paramsType) {
+            this.wire = wire;
+            this.paramsType = paramsType;
+        }
+
+        @Override
+        public String wire() {
+            return wire;
+        }
+
+        @Override
+        public Class<? extends FieldParams> paramsType() {
+            return paramsType;
+        }
+    }
+
+    record Unknown() implements FieldParams {
+        @Override
+        public FieldCode code() {
+            return TestCode.UNKNOWN;
+        }
+    }
+
+    record WrongType(String expected) implements FieldParams {
+        @Override
+        public FieldCode code() {
+            return TestCode.WRONG_TYPE;
+        }
+    }
+
+    record Required() implements FieldParams {
+        @Override
+        public FieldCode code() {
+            return TestCode.REQUIRED;
+        }
+    }
+
+    private static final FieldError UNKNOWN_FOO = FieldError.of("/foo", new Unknown());
+    private static final FieldError UNKNOWN_BAR = FieldError.of("/bar", new Unknown());
     private static final FieldError NAME_WRONG_TYPE =
-            new FieldError("/name", "validation.wrong-type", "expected string");
-    private static final FieldError NAME_REQUIRED = new FieldError("/name", "validation.required");
-    private static final FieldError CODE_REQUIRED = new FieldError("/code", "validation.required");
+            FieldError.of("/name", new WrongType("string"), "expected string");
+    private static final FieldError NAME_REQUIRED = FieldError.of("/name", new Required());
+    private static final FieldError CODE_REQUIRED = FieldError.of("/code", new Required());
 
     record Sample(String name) {}
 

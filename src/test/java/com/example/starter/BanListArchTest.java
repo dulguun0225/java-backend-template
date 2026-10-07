@@ -8,6 +8,8 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.starter.platform.error.FieldError;
+import com.example.starter.platform.error.FieldParams;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -343,6 +345,20 @@ class BanListArchTest {
             .because("a @RequestBody bound as anything but BoundBody is read by the lenient default converter: "
                     + "an undeclared member is dropped silently and a wrong-typed value names no member");
 
+    /**
+     * A field-level error is built by {@code FieldError.of}, which takes its wire code from the typed params record
+     * the throw site passes, so a code never leaves without its params. The canonical constructor takes the code as
+     * a string beside the record; it stays public, as every record constructor must, for test oracles pinning a
+     * literal, and main code never calls it.
+     */
+    static final ArchRule FIELD_ERRORS_BUILT_FROM_THEIR_PARAMS = noClasses()
+            .that()
+            .doNotHaveFullyQualifiedName(FieldError.class.getName())
+            .should()
+            .callConstructor(FieldError.class, String.class, String.class, FieldParams.class, String.class)
+            .because("a field error built by hand pairs a wire-code string with a params record nothing checks at"
+                    + " compile time; FieldError.of takes the code from the record");
+
     private static ArchCondition<JavaMethod> bindEveryRequestBodyAsBoundBody() {
         return new ArchCondition<>("bind every @RequestBody parameter as " + BOUND_BODY) {
             @Override
@@ -522,5 +538,10 @@ class BanListArchTest {
     @Test
     void requestBodiesBindThroughBoundBody() {
         REQUEST_BODIES_BIND_THROUGH_BOUND_BODY.check(MAIN);
+    }
+
+    @Test
+    void fieldErrorsAreBuiltFromTheirParams() {
+        FIELD_ERRORS_BUILT_FROM_THEIR_PARAMS.check(MAIN);
     }
 }

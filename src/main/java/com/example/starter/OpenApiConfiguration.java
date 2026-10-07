@@ -143,6 +143,12 @@ class OpenApiConfiguration {
                 new StringSchema()
                         .description("Caller-safe text naming what was expected, e.g. `expected boolean` on"
                                 + " validation.wrong-type; never the value sent. Absent when the code alone says it"));
+        ObjectSchema params = new ObjectSchema();
+        params.setAdditionalProperties(Boolean.TRUE);
+        params.setDescription("What is allowed, by name: exactly the params the code declares in the error catalog,"
+                + " e.g. {\"max\": 100} on validation.too-long, {\"expected\": \"boolean\"} on"
+                + " validation.wrong-type. Absent when the code declares none. Never the value sent");
+        fieldError.addProperty("params", params);
         fieldError.setRequired(List.of("pointer", "code"));
 
         ArraySchema errors = new ArraySchema();

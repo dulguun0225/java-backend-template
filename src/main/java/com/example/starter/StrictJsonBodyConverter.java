@@ -5,10 +5,14 @@ import com.example.starter.platform.error.BoundBody;
 import com.example.starter.platform.error.FieldError;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
 import org.springframework.core.ResolvableType;
@@ -41,9 +45,18 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The one reader of request bodies: binds a {@code @RequestBody BoundBody<T>} parameter strictly, recording
- * every member the record {@code T} does not declare, every path identifier sent in the body and every value
- * of the wrong JSON type, all in one streaming pass, so one {@code validation.failed} can name all of them
- * together with the feature's own field-rule failures ({@link BoundBody#validate}).
+ * every member the record {@code T} does not declare, every path identifier sent in the body, every value
+ * of the wrong JSON type and every member given twice in one object, so one {@code validation.failed} can name
+ * all of them together with the feature's own field-rule failures ({@link BoundBody#validate}).
+ *
+ * <p>A member given twice is found by a first pass over the body's tokens, which keeps the names seen in each
+ * open object and records {@code validation.duplicate-member} at the pointer of every repeat, at any depth,
+ * declared or not; a body with one is returned unbound, so neither value reaches the service. Jackson binds the
+ * last of two equal keys and calls no {@link DeserializationProblemHandler} for a declared member, so the binding
+ * pass alone cannot see one; {@code StreamReadFeature.STRICT_DUPLICATE_DETECTION} stops the read at the first
+ * repeat with a stream-read error, which would make the body unreadable rather than name the member, and would
+ * hide every failure after it. The first pass reads every token of the body, so it sees inside a member the
+ * binding pass skips. The body is therefore held in memory for the two passes.
  *
  * <p>The mechanism is a per-read Jackson {@link DeserializationProblemHandler} on Boot's own mapper, which
  * leaves every mapper-wide setting as it is — the scalar coercions, the numeric binding of {@code Number}
@@ -104,8 +117,12 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
         Collector collector = new Collector(pathVariables());
         ObjectReader reader =
                 mapper.readerFor(target).withHandler(collector).without(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-        try (InputStream body = inputMessage.getBody();
-                JsonParser parser = reader.createParser(body)) {
+        byte[] bytes;
+        try (InputStream body = inputMessage.getBody()) {
+            bytes = body.readAllBytes();
+        }
+        List<FieldError> duplicates = duplicateMembers(reader, bytes);
+        try (JsonParser parser = reader.createParser(bytes)) {
             JsonToken first = parser.nextToken();
             if (first == null) {
                 throw unreadable(new UnreadableBody(UnreadableBody.Kind.MISSING), inputMessage);
@@ -118,10 +135,13 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
                 throw unreadable(notWellFormed(parser.currentTokenLocation()), inputMessage);
             }
             if (value == null) {
-                if (collector.errors.isEmpty()) {
+                if (collector.errors.isEmpty() && duplicates.isEmpty()) {
                     throw unreadable(new UnreadableBody(UnreadableBody.Kind.NOT_AN_OBJECT), inputMessage);
                 }
-                return BoundBody.unbound(collector.errors);
+                return BoundBody.unbound(concat(collector.errors, duplicates));
+            }
+            if (!duplicates.isEmpty()) {
+                return BoundBody.unbound(concat(collector.errors, duplicates));
             }
             return BoundBody.of(value, collector.errors);
         } catch (StreamReadException | StreamConstraintsException e) {
@@ -134,8 +154,8 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
             if (pointer.isEmpty()) {
                 throw unreadable(notWellFormed(e.getLocation()), inputMessage);
             }
-            List<FieldError> errors = new ArrayList<>(collector.errors);
-            errors.add(FieldError.of(pointer, ApiFieldCode.WRONG_TYPE, expected(e)));
+            List<FieldError> errors = concat(collector.errors, duplicates);
+            errors.add(wrongType(pointer, expected(e)));
             return BoundBody.unbound(errors);
         }
     }
@@ -149,6 +169,44 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
             @Nullable Map<String, Object> hints)
             throws HttpMessageNotWritableException {
         throw new HttpMessageNotWritableException("this converter only reads request bodies");
+    }
+
+    /**
+     * The first pass: every member given twice in one object, at its pointer, at any depth. Text that is not
+     * well-formed JSON ends the pass with what it found; the binding pass then reports where it stopped.
+     */
+    private static List<FieldError> duplicateMembers(ObjectReader reader, byte[] bytes) {
+        List<FieldError> found = new ArrayList<>();
+        Deque<Set<String>> open = new ArrayDeque<>();
+        try (JsonParser parser = reader.createParser(bytes)) {
+            for (JsonToken token = parser.nextToken(); token != null; token = parser.nextToken()) {
+                switch (token) {
+                    case START_OBJECT -> open.push(new HashSet<>());
+                    case END_OBJECT -> open.pop();
+                    case PROPERTY_NAME -> {
+                        if (!Objects.requireNonNull(open.peek()).add(String.valueOf(parser.currentName()))) {
+                            found.add(FieldError.of(
+                                    parser.streamReadContext().pathAsPointer().toString(),
+                                    new ApiFieldCode.DuplicateMember()));
+                        }
+                    }
+                    default -> {}
+                }
+            }
+        } catch (JacksonException e) {
+            return found;
+        }
+        return found;
+    }
+
+    private static List<FieldError> concat(List<FieldError> first, List<FieldError> second) {
+        List<FieldError> all = new ArrayList<>(first);
+        all.addAll(second);
+        return all;
+    }
+
+    private static FieldError wrongType(String pointer, String jsonType) {
+        return FieldError.of(pointer, new ApiFieldCode.WrongType(jsonType), "expected " + jsonType);
     }
 
     private static boolean isJson(MediaType mediaType) {
@@ -204,24 +262,27 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
         if (e instanceof MismatchedInputException mismatch && mismatch.getTargetType() != null) {
             return expected(mismatch.getTargetType());
         }
-        return "expected object";
+        return "object";
     }
 
-    /** The expected JSON type of a bound Java type, named in {@code detail} as {@code expected <type>}. */
+    /**
+     * The expected JSON type of a bound Java type: the {@code expected} param, and in {@code detail} as
+     * {@code expected <type>}.
+     */
     static String expected(Class<?> type) {
         if (CharSequence.class.isAssignableFrom(type) || type.isEnum() || type == Character.class) {
-            return "expected string";
+            return "string";
         }
         if (type == Boolean.class || type == boolean.class) {
-            return "expected boolean";
+            return "boolean";
         }
         if (Number.class.isAssignableFrom(type) || (type.isPrimitive() && type != void.class)) {
-            return "expected integer";
+            return "integer";
         }
         if (Collection.class.isAssignableFrom(type) || type.isArray()) {
-            return "expected array";
+            return "array";
         }
-        return "expected object";
+        return "object";
     }
 
     private static boolean hasCause(Throwable ex, Class<? extends Throwable> type) {
@@ -237,8 +298,8 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
 
     /**
      * Collects the binding failures of one read. Each callback records the member's pointer, taken from the
-     * parser's own read context (RFC 6901, escaped), and a fixed expected-type text — never the value or
-     * Jackson's message, which quotes it.
+     * parser's own read context (RFC 6901, escaped), and a fixed expected type — never the value or Jackson's
+     * message, which quotes it.
      */
     static final class Collector extends DeserializationProblemHandler {
 
@@ -256,16 +317,36 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
                 ValueDeserializer<?> deserializer,
                 Object beanOrClass,
                 String propertyName) {
-            TokenStreamContext read = parser.streamReadContext();
-            String pointer = pointer(parser);
-            TokenStreamContext parent = read.getParent();
-            boolean topLevel = parent != null && parent.inRoot();
+            TokenStreamContext enclosing = enclosingObject(context, parser);
+            String pointer =
+                    (enclosing == null ? "" : enclosing.pathAsPointer().toString()) + "/" + escape(propertyName);
+            boolean topLevel = enclosing != null && enclosing.inRoot();
             errors.add(
                     topLevel && pathVariables.contains(propertyName)
-                            ? FieldError.of(pointer, ApiFieldCode.IDENTIFIER_IN_PATH)
-                            : FieldError.of(pointer, ApiFieldCode.UNKNOWN_FIELD));
+                            ? FieldError.of(pointer, new ApiFieldCode.IdentifierInPath())
+                            : FieldError.of(pointer, new ApiFieldCode.UnknownField()));
             parser.skipChildren();
             return true;
+        }
+
+        /**
+         * The context whose path is the pointer of the object holding an unknown member. A record's unknown members
+         * are buffered while it is read and replayed from that buffer once its closing brace is read, and the
+         * buffer's own read context does not carry the path (a structured value replayed from it reported
+         * {@code /foo/foo} for {@code {"foo":{"z":1}}}); at that point the source parser has left the object and
+         * its context is the object's parent, whose path is the object's pointer. Read directly, the handler's
+         * parser is at the member's value: its context is the object's, or the value's own when the value is an
+         * object or an array, and the object's parent again gives the pointer.
+         */
+        private static @Nullable TokenStreamContext enclosingObject(DeserializationContext context, JsonParser parser) {
+            JsonParser source = context.getParser();
+            if (source != null && source != parser && source.currentToken() == JsonToken.END_OBJECT) {
+                return source.streamReadContext();
+            }
+            TokenStreamContext read = parser.streamReadContext();
+            JsonToken token = parser.currentToken();
+            TokenStreamContext object = token != null && token.isStructStart() ? read.getParent() : read;
+            return object == null ? null : object.getParent();
         }
 
         @Override
@@ -306,12 +387,12 @@ final class StrictJsonBodyConverter implements SmartHttpMessageConverter<Object>
             return null;
         }
 
-        private void wrongType(JsonParser parser, String detail) {
+        private void wrongType(JsonParser parser, String jsonType) {
             String pointer = pointer(parser);
             if (pointer.isEmpty()) {
                 return;
             }
-            errors.add(FieldError.of(pointer, ApiFieldCode.WRONG_TYPE, detail));
+            errors.add(StrictJsonBodyConverter.wrongType(pointer, jsonType));
         }
 
         private static String pointer(JsonParser parser) {

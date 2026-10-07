@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class GreetingService {
 
+    /** The longest name accepted, in characters (Unicode code points), never UTF-16 units or bytes. */
     static final int NAME_MAX_LENGTH = 100;
 
     private static final Log log = Log.forClass(GreetingService.class);
@@ -66,11 +67,11 @@ public class GreetingService {
     private static @Nullable String validName(CreateGreetingRequest request, List<FieldError> errors) {
         String name = request.name();
         if (name == null || name.isBlank()) {
-            errors.add(FieldError.of("/name", GreetingFieldCode.REQUIRED));
+            errors.add(FieldError.of("/name", new GreetingFieldCode.Required()));
             return null;
         }
-        if (name.length() > NAME_MAX_LENGTH) {
-            errors.add(FieldError.of("/name", GreetingFieldCode.TOO_LONG));
+        if (name.codePointCount(0, name.length()) > NAME_MAX_LENGTH) {
+            errors.add(FieldError.of("/name", new GreetingFieldCode.TooLong(NAME_MAX_LENGTH)));
             return null;
         }
         return name.strip();

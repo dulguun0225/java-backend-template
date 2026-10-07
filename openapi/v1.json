@@ -59,6 +59,11 @@
                   "description" : "Caller-safe text naming what was expected, e.g. `expected boolean` on validation.wrong-type; never the value sent. Absent when the code alone says it",
                   "type" : "string"
                 },
+                "params" : {
+                  "additionalProperties" : true,
+                  "description" : "What is allowed, by name: exactly the params the code declares in the error catalog, e.g. {\"max\": 100} on validation.too-long, {\"expected\": \"boolean\"} on validation.wrong-type. Absent when the code declares none. Never the value sent",
+                  "type" : "object"
+                },
                 "pointer" : {
                   "description" : "RFC 6901 JSON pointer, e.g. /name",
                   "type" : "string"

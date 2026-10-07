@@ -73,4 +73,30 @@ class GreetingEndpointIT {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getBody()).contains("\"code\":\"not-found\"");
     }
+
+    /**
+     * Too long by one character, counted in code points: 101 four-byte characters (202 UTF-16 units) are refused
+     * naming the limit, and 100 of them are accepted.
+     */
+    @Test
+    void aNameOverTheLimitIsRefusedNamingTheLimitInCharacters() {
+        String astral = "\uD83D\uDE00";
+        ResponseEntity<String> refused = client().post()
+                .uri("/api/greetings")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"name\":\"" + astral.repeat(101) + "\"}")
+                .retrieve()
+                .toEntity(String.class);
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(refused.getBody())
+                .contains("{\"pointer\":\"/name\",\"code\":\"validation.too-long\",\"params\":{\"max\":100}}");
+
+        ResponseEntity<String> accepted = client().post()
+                .uri("/api/greetings")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"name\":\"" + astral.repeat(100) + "\"}")
+                .retrieve()
+                .toEntity(String.class);
+        assertThat(accepted.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    }
 }

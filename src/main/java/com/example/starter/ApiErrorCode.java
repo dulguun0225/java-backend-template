@@ -5,7 +5,8 @@ import org.springframework.http.HttpStatus;
 
 /**
  * The compile-checked catalog for cross-cutting API errors raised below any single feature: a malformed
- * body, a decimal sent as a JSON number, the standard MVC 4xx, a field-validation rejection, and the
+ * body, a decimal sent as a JSON number, the standard MVC 4xx (a multipart upload over the size limit is
+ * {@code request.too-large}), a field-validation rejection, and the
  * last-resort 500. Feature-specific business errors live in each feature's own {@code *ErrorCode}. Every
  * error {@link ApiExceptionHandler} produces is coded; none is uncoded. Wire strings are immutable once
  * shipped, and {@code ErrorCatalogSnapshotTest} turns any change into a reviewable diff.
@@ -19,6 +20,7 @@ public enum ApiErrorCode implements WireError {
     METHOD_NOT_ALLOWED("request.method-not-allowed", HttpStatus.METHOD_NOT_ALLOWED),
     NOT_ACCEPTABLE("request.not-acceptable", HttpStatus.NOT_ACCEPTABLE),
     UNSUPPORTED_MEDIA_TYPE("request.unsupported-media-type", HttpStatus.UNSUPPORTED_MEDIA_TYPE),
+    TOO_LARGE("request.too-large", HttpStatus.CONTENT_TOO_LARGE),
     SERVICE_UNAVAILABLE("request.service-unavailable", HttpStatus.SERVICE_UNAVAILABLE),
     INTERNAL("platform.internal", HttpStatus.INTERNAL_SERVER_ERROR);
 

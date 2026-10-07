@@ -74,7 +74,7 @@ Docker is needed for the wall.
 Compile wall (Error Prone, NullAway, JSpecify; empty catch and dropped future are errors). Enforcer (Java
 pin, no dynamic versions, jqwik ceiling, banned dependencies). Spotless. An executable ban list with a
 coverage meta-test and a negative-control fixture per rule. Layering: no cycle between modules, a feature reaching another only through its `api` package itself and over an edge listed in a committed map that ships empty and lists no edge the code does not take, the platform tier depending on no feature, the generated tree on nothing outside itself, and the base package on no feature, with a fixture tree every layering rule must report. Migration conventions with negative
-fixtures, plus squawk. jOOQ regenerated twice from the migrations and diffed. Error catalog snapshot.
+fixtures, plus squawk. jOOQ regenerated twice from the migrations and diffed. Error catalog snapshot of every code, status and param names.
 OpenAPI document normalized and snapshotted, rerun under another timezone, and linted by vacuum against a committed ruleset. Error edge tests: every error
 coded, the 500 leaks nothing and its incident id resolves to one log event. Property tests on `Money`.
 Integration tests on real PostgreSQL. JaCoCo floor. Licence allowlist. SBOM plus osv-scanner with a
@@ -85,7 +85,8 @@ moving a pin.
 ## Adding a feature
 
 Copy the `greeting` package's shape: a migration under `src/main/resources/db/migration`, `mvn -Pcodegen
-generate-sources`, a `*ErrorCode` enum (add it to `ErrorCatalogSnapshotTest`), a service that goes through
+generate-sources`, a `*ErrorCode` enum and a `*FieldCode` enum whose constants each name a params record (add both to
+`ErrorCatalogSnapshotTest`), a service that goes through
 `Tx`, a controller, an `*IT` against Testcontainers, and an owner row for the new table in
 `TableOwnershipTest.OWNERS`. The feature may read any other feature's table through the generated jOOQ tables;
 only the owner writes a table. A feature that calls another reaches only the classes in the callee's `api`

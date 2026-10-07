@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The strict body reader in isolation: which member each binding failure names (an RFC 6901 pointer, escaped),
- * which code it carries, what {@code detail} says, and that nothing the caller sent is echoed. The mapper is
+ * which code and params it carries, what {@code detail} says, that a member given twice is refused at any depth
+ * with neither value bound, and that nothing the caller sent is echoed. The mapper is
  * configured as Boot configures it — unknown properties not failing — so the reader is proven not to depend on
  * that setting.
  */
@@ -52,7 +54,8 @@ class StrictJsonBodyConverterTest {
             String rate,
 
             @Nullable Inner inner,
-            @Nullable List<String> tags) {}
+            @Nullable List<String> tags,
+            @Nullable Map<String, String> labels) {}
 
     @AfterEach
     void clearRequest() {
@@ -76,7 +79,7 @@ class StrictJsonBodyConverterTest {
     void aCleanBodyBindsWithNoFailure() {
         Sample sample = value(read("{\"name\":\"X\",\"flag\":true,\"count\":3,\"rate\":\"2.5\",\"tags\":[\"t\"]}"));
 
-        assertThat(sample).isEqualTo(new Sample("X", true, 3, "2.5", null, List.of("t")));
+        assertThat(sample).isEqualTo(new Sample("X", true, 3, "2.5", null, List.of("t"), null));
     }
 
     @Test
@@ -85,14 +88,94 @@ class StrictJsonBodyConverterTest {
                 .containsExactly(unknown("/bar"), unknown("/foo"), unknown("/inner/zz"));
     }
 
+    /**
+     * A record's unknown members are replayed from a buffer after its closing brace; the pointer of one whose value
+     * is an object or an array once came out wrong ({@code /foo/foo}, {@code /bar/1}).
+     */
+    @Test
+    void anUnknownMemberHoldingAnObjectOrAnArrayIsNamedAtItsOwnPointer() {
+        assertThat(failures("{\"foo\":{\"z\":1}}")).containsExactly(unknown("/foo"));
+        assertThat(failures("{\"foo\":[1],\"bar\":2}")).containsExactly(unknown("/bar"), unknown("/foo"));
+        assertThat(failures("{\"foo\":{\"x\":1},\"bar\":{\"y\":2},\"baz\":[[1]]}"))
+                .containsExactly(unknown("/bar"), unknown("/baz"), unknown("/foo"));
+        assertThat(failures("{\"inner\":{\"a\":\"x\",\"q\":[2],\"r\":{\"s\":1},\"t\":1},\"name\":\"n\"}"))
+                .containsExactly(unknown("/inner/q"), unknown("/inner/r"), unknown("/inner/t"));
+    }
+
+    @Test
+    void aPathVariableSentAsAnObjectIsStillAnIdentifierInThePath() {
+        pathVariables(Map.of("code", "ACC"));
+
+        assertThat(failures("{\"code\":{\"x\":1},\"foo\":[1]}"))
+                .containsExactly(
+                        new FieldError(
+                                "/code", "validation.identifier-in-path", new ApiFieldCode.IdentifierInPath(), null),
+                        unknown("/foo"));
+    }
+
     @Test
     void aPointerIsEscapedAsRfc6901Requires() {
         assertThat(failures("{\"a/b~c\":1}")).containsExactly(unknown("/a~1b~0c"));
     }
 
     @Test
-    void aMemberRepeatedIsNamedOnce() {
-        assertThat(failures("{\"foo\":1,\"foo\":2}")).containsExactly(unknown("/foo"));
+    void anUndeclaredMemberGivenTwiceIsOneUnknownFieldAndADuplicate() {
+        assertThat(failures("{\"foo\":1,\"foo\":2}")).containsExactly(duplicate("/foo"), unknown("/foo"));
+    }
+
+    /** Jackson binds the last of two equal keys; the reader refuses the body and binds neither. */
+    @Test
+    void aDeclaredMemberGivenTwiceIsRefusedAndNeitherValueIsBound() {
+        AtomicBoolean ruled = new AtomicBoolean();
+        BoundBody<Sample> body = read("{\"name\":\"first\",\"name\":\"second\"}");
+
+        ValidationFailed failed = catchThrowableOfType(
+                ValidationFailed.class,
+                () -> body.validate((sample, errors) -> {
+                    ruled.set(true);
+                    return sample;
+                }));
+
+        assertThat(failed).isNotNull();
+        assertThat(failed.errors()).containsExactly(duplicate("/name"));
+        assertThat(ruled)
+                .as("the field rules never see a body with a member given twice")
+                .isFalse();
+    }
+
+    @Test
+    void aMemberGivenThreeTimesIsNamedOnce() {
+        assertThat(failures("{\"name\":\"a\",\"name\":\"b\",\"name\":\"c\"}")).containsExactly(duplicate("/name"));
+    }
+
+    @Test
+    void aMemberGivenTwiceIsRefusedAtAnyDepthWhereItIs() {
+        assertThat(failures("{\"inner\":{\"a\":\"x\",\"a\":\"y\"},\"labels\":{\"k\":\"1\",\"k\":\"2\"},"
+                        + "\"foo\":[{\"z\":1},{\"z\":1,\"z\":2}],\"bar\":{\"a/b\":1,\"a/b\":2}}"))
+                .containsExactly(
+                        unknown("/bar"),
+                        duplicate("/bar/a~1b"),
+                        unknown("/foo"),
+                        duplicate("/foo/1/z"),
+                        duplicate("/inner/a"),
+                        duplicate("/labels/k"));
+    }
+
+    @Test
+    void aMemberGivenTwiceIsCollectedWithEveryOtherFailureOfTheBody() {
+        assertThat(failures("{\"name\":\"a\",\"flag\":\"yes\",\"name\":\"b\",\"foo\":1,\"tags\":\"t\"}"))
+                .containsExactly(
+                        wrongType("/flag", "boolean"),
+                        unknown("/foo"),
+                        duplicate("/name"),
+                        wrongType("/tags", "array"));
+    }
+
+    @Test
+    void aMemberGivenOnceInEachOfTwoObjectsIsNoDuplicate() {
+        assertThat(value(read("{\"inner\":{\"a\":\"x\"},\"labels\":{\"a\":\"y\"},\"name\":\"a\"}"))
+                        .labels())
+                .isEqualTo(Map.of("a", "y"));
     }
 
     @Test
@@ -101,8 +184,10 @@ class StrictJsonBodyConverterTest {
 
         assertThat(failures("{\"code\":\"ACC\",\"date\":null,\"inner\":{\"code\":1}}"))
                 .containsExactly(
-                        new FieldError("/code", "validation.identifier-in-path"),
-                        new FieldError("/date", "validation.identifier-in-path"),
+                        new FieldError(
+                                "/code", "validation.identifier-in-path", new ApiFieldCode.IdentifierInPath(), null),
+                        new FieldError(
+                                "/date", "validation.identifier-in-path", new ApiFieldCode.IdentifierInPath(), null),
                         unknown("/inner/code"));
     }
 
@@ -166,7 +251,8 @@ class StrictJsonBodyConverterTest {
                 "{\"flag\":\"" + SENTINEL + "\"}",
                 "{\"name\":[\"" + SENTINEL + "\"]}",
                 "{\"foo\":\"" + SENTINEL + "\"}",
-                "{\"rate\":{\"x\":\"" + SENTINEL + "\"}}")) {
+                "{\"rate\":{\"x\":\"" + SENTINEL + "\"}}",
+                "{\"name\":\"" + SENTINEL + "\",\"name\":\"" + SENTINEL + "\"}")) {
             ValidationFailed failed = catchThrowableOfType(ValidationFailed.class, () -> value(read(json)));
             assertThat(failed).as(json).isNotNull();
             assertThat(failed.errors().toString()).as(json).doesNotContain(SENTINEL);
@@ -226,10 +312,15 @@ class StrictJsonBodyConverterTest {
     }
 
     private static FieldError unknown(String pointer) {
-        return new FieldError(pointer, "validation.unknown-field");
+        return new FieldError(pointer, "validation.unknown-field", new ApiFieldCode.UnknownField(), null);
+    }
+
+    private static FieldError duplicate(String pointer) {
+        return new FieldError(pointer, "validation.duplicate-member", new ApiFieldCode.DuplicateMember(), null);
     }
 
     private static FieldError wrongType(String pointer, String expected) {
-        return new FieldError(pointer, "validation.wrong-type", "expected " + expected);
+        return new FieldError(
+                pointer, "validation.wrong-type", new ApiFieldCode.WrongType(expected), "expected " + expected);
     }
 }

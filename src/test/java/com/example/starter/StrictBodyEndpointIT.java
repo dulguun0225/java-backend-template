@@ -59,8 +59,10 @@ import tools.jackson.databind.json.JsonMapper;
  *   <li>a member its request type does not declare — 400 {@code validation.failed}, {@code validation.unknown-field}
  *       at its pointer;
  *   <li>each of its path variables sent in the body — {@code validation.identifier-in-path} at that pointer;
- *   <li>every member of its record sent as a JSON array — {@code validation.wrong-type} at that pointer, with a
- *       {@code detail};
+ *   <li>every member of its record sent as a JSON array — {@code validation.wrong-type} at that pointer, with its
+ *       {@code expected} param and a {@code detail};
+ *   <li>every member of its record given twice, and a member given twice inside an undeclared object —
+ *       {@code validation.duplicate-member} at the repeated member's pointer;
  *   <li>text that is not well-formed JSON — 400 {@code validation.malformed-body} with the line and column;
  *   <li>no body, where the body is required — 400 {@code validation.malformed-body}, "The request body is
  *       missing.";
@@ -206,10 +208,37 @@ class StrictBodyEndpointIT {
                         .anySatisfy(error -> assertThat(error)
                                 .containsEntry("pointer", "/" + member.getName())
                                 .containsEntry("code", "validation.wrong-type")
-                                .containsKey("detail"));
+                                .containsKey("detail")
+                                .extractingByKey("params")
+                                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                                .containsOnlyKeys("expected"));
                 assertNoEcho(operation, refused);
             }
         }
+    }
+
+    /** {@code null} fits every member's type, so the repeat is the only failure the body has. */
+    @Test
+    void everyMemberGivenTwiceIsADuplicateOnEveryOperationAtAnyDepth() {
+        int members = 0;
+        for (BodyOperation operation : operations()) {
+            for (RecordComponent member : operation.body().getRecordComponents()) {
+                String name = member.getName();
+                ResponseEntity<String> refused =
+                        refusedWithoutATransaction(operation, "{\"" + name + "\":null,\"" + name + "\":null}");
+                assertThat(errorsOf(refused))
+                        .as(operation.operationId() + " /" + name)
+                        .containsExactly(Map.of("pointer", "/" + name, "code", "validation.duplicate-member"));
+                members++;
+            }
+            ResponseEntity<String> nested = refusedWithoutATransaction(
+                    operation, "{\"__probe\":{\"a\":\"" + SENTINEL + "\",\"a\":\"" + SENTINEL + "\"}}");
+            assertThat(errorsOf(nested))
+                    .as(operation.operationId() + " nested")
+                    .contains(Map.of("pointer", "/__probe/a", "code", "validation.duplicate-member"));
+            assertNoEcho(operation, nested);
+        }
+        assertThat(members).as("the sweep sent members twice").isPositive();
     }
 
     @Test
